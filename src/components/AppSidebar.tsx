@@ -9,6 +9,7 @@ import {
   CalendarDays,
   BrainCircuit,
   Star,
+  Sparkles,
   LogOut,
   LogIn,
 } from "lucide-react";
