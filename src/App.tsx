@@ -3,23 +3,48 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import Index from "./pages/Index.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import { SportProvider } from "@/contexts/SportContext";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { FavoritesProvider } from "@/contexts/FavoritesContext";
+import AppLayout from "@/components/AppLayout";
+import Dashboard from "@/pages/Dashboard";
+import TeamsPage from "@/pages/TeamsPage";
+import AthletesPage from "@/pages/AthletesPage";
+import MatchesPage from "@/pages/MatchesPage";
+import PredictionsPage from "@/pages/PredictionsPage";
+import FavoritesPage from "@/pages/FavoritesPage";
+import LoginPage from "@/pages/LoginPage";
+import RegisterPage from "@/pages/RegisterPage";
+import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <SportProvider>
+          <FavoritesProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route element={<AppLayout />}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/equipes" element={<TeamsPage />} />
+                  <Route path="/atletas" element={<AthletesPage />} />
+                  <Route path="/partidas" element={<MatchesPage />} />
+                  <Route path="/previsoes" element={<PredictionsPage />} />
+                  <Route path="/favoritos" element={<FavoritesPage />} />
+                </Route>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/registro" element={<RegisterPage />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </FavoritesProvider>
+        </SportProvider>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
