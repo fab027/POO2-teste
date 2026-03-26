@@ -37,6 +37,7 @@ const App = () => (
                   <Route path="/partidas" element={<MatchesPage />} />
                   <Route path="/previsoes" element={<PredictionsPage />} />
                   <Route path="/favoritos" element={<FavoritesPage />} />
+                  <Route path="/agregador" element={<DataAggregatorPage />} />
                 </Route>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/registro" element={<RegisterPage />} />
