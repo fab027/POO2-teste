@@ -13,6 +13,7 @@ import AthletesPage from "@/pages/AthletesPage";
 import MatchesPage from "@/pages/MatchesPage";
 import PredictionsPage from "@/pages/PredictionsPage";
 import FavoritesPage from "@/pages/FavoritesPage";
+import DataAggregatorPage from "@/pages/DataAggregatorPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import NotFound from "@/pages/NotFound";
