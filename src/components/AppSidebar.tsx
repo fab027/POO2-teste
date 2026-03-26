@@ -9,6 +9,7 @@ import {
   CalendarDays,
   BrainCircuit,
   Star,
+  Sparkles,
   LogOut,
   LogIn,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/partidas", label: "Partidas", icon: CalendarDays },
   { to: "/previsoes", label: "Previsões ML", icon: BrainCircuit },
   { to: "/favoritos", label: "Favoritos", icon: Star },
+  { to: "/agregador", label: "Agregador", icon: Sparkles },
 ];
 
 const AppSidebar = () => {
