@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import FavoriteButton from "@/components/FavoriteButton";
 import { footballAthletes, basketballAthletes } from "@/data/mockData";
@@ -5,13 +8,30 @@ import { footballAthletes, basketballAthletes } from "@/data/mockData";
 const AthletesPage = () => {
   const { sport, sportLabel } = useSport();
   const isFootball = sport === "football";
-  const athletes = isFootball ? footballAthletes : basketballAthletes;
+  const [search, setSearch] = useState("");
+  const athletes = (isFootball ? footballAthletes : basketballAthletes).filter(
+    (a: any) =>
+      a.nome.toLowerCase().includes(search.toLowerCase()) ||
+      a.equipe.toLowerCase().includes(search.toLowerCase()) ||
+      a.posicao.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">Atletas — {sportLabel}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Estatísticas individuais dos atletas</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Atletas — {sportLabel}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Estatísticas individuais dos atletas</p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar atleta, equipe ou posição..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
@@ -31,6 +51,9 @@ const AthletesPage = () => {
             </tr>
           </thead>
           <tbody>
+            {athletes.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum atleta encontrado.</td></tr>
+            )}
             {athletes.map((a: any) => (
               <tr key={a.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
                 <td className="px-4 py-3 font-medium text-foreground">{a.nome}</td>
