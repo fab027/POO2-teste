@@ -1,9 +1,18 @@
+import { useState } from "react";
+import { Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import { footballMatches, basketballMatches } from "@/data/mockData";
 
 const MatchesPage = () => {
   const { sport, sportLabel } = useSport();
-  const matches = sport === "football" ? footballMatches : basketballMatches;
+  const [search, setSearch] = useState("");
+  const matches = (sport === "football" ? footballMatches : basketballMatches).filter(
+    (m) =>
+      m.casa.toLowerCase().includes(search.toLowerCase()) ||
+      m.fora.toLowerCase().includes(search.toLowerCase()) ||
+      m.liga.toLowerCase().includes(search.toLowerCase())
+  );
 
   const statusLabel = (s: string) => {
     switch (s) {
@@ -16,12 +25,26 @@ const MatchesPage = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">Partidas — {sportLabel}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Histórico e próximas partidas</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Partidas — {sportLabel}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Histórico e próximas partidas</p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por equipe ou liga..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
       <div className="space-y-3">
+        {matches.length === 0 && (
+          <p className="text-center text-sm text-muted-foreground py-8">Nenhuma partida encontrada.</p>
+        )}
         {matches.map((m) => {
           const status = statusLabel(m.status);
           return (

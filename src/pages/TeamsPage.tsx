@@ -1,21 +1,44 @@
+import { useState } from "react";
+import { Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import FavoriteButton from "@/components/FavoriteButton";
 import { footballTeams, basketballTeams } from "@/data/mockData";
 
 const TeamsPage = () => {
   const { sport, sportLabel } = useSport();
-  const teams = sport === "football" ? footballTeams : basketballTeams;
+  const [search, setSearch] = useState("");
+  const teams = (sport === "football" ? footballTeams : basketballTeams).filter(
+    (t) =>
+      t.nome.toLowerCase().includes(search.toLowerCase()) ||
+      t.liga.toLowerCase().includes(search.toLowerCase()) ||
+      t.pais.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">Equipes — {sportLabel}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Todas as equipes de {sportLabel.toLowerCase()} cadastradas
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Equipes — {sportLabel}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Todas as equipes de {sportLabel.toLowerCase()} cadastradas
+          </p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar equipe, liga ou país..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {teams.length === 0 && (
+          <p className="col-span-full text-center text-sm text-muted-foreground py-8">Nenhuma equipe encontrada.</p>
+        )}
         {teams.map((team) => (
           <div
             key={team.id}
