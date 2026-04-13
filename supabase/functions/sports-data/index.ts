@@ -220,7 +220,8 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ ...result, ...(Array.isArray(result) ? {} : {}), _fallback: usedFallback }), {
+    const response = Array.isArray(result) ? result : { ...result, _fallback: usedFallback };
+    return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
