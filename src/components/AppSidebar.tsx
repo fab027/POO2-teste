@@ -2,6 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useSport } from "@/contexts/SportContext";
 import { useAuth } from "@/contexts/AuthContext";
 import SportSwitcher from "./SportSwitcher";
+import LeagueSelector from "./LeagueSelector";
 import {
   LayoutDashboard,
   Users,
@@ -40,11 +41,12 @@ const AppSidebar = () => {
         </span>
       </div>
 
-      <div className="px-4 py-4">
+      <div className="space-y-2 px-4 py-4">
         <SportSwitcher />
+        <LeagueSelector />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 space-y-1 px-3 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = location.pathname === item.to;
           return (

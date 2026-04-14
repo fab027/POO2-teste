@@ -1,75 +1,134 @@
-import { useSport } from "@/contexts/SportContext";
-import { footballPredictions, basketballPredictions } from "@/data/mockData";
-import { BrainCircuit } from "lucide-react";
+import { RefreshCw, Wifi, WifiOff, BrainCircuit, TrendingUp, TrendingDown } from "lucide-react";
+import { useOdds } from "@/hooks/useSofaScoreData";
+
+const oddsToProb = (odds: number) => (odds > 0 ? (1 / odds) * 100 : 0);
 
 const PredictionsPage = () => {
-  const { sport, sportLabel } = useSport();
-  const isFootball = sport === "football";
-  const predictions = isFootball ? footballPredictions : basketballPredictions;
-
-  const getBarWidth = (prob: number) => `${Math.max(prob, 2)}%`;
+  const { data: odds, status, refetch } = useOdds();
+  const isLoading = status === "loading";
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-2">
-          <BrainCircuit className="h-6 w-6 text-sport" />
-          Previsões ML — {sportLabel}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Previsões geradas por Machine Learning para partidas agendadas
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-2">
+            <BrainCircuit className="h-6 w-6 text-sport" />
+            Previsões — Odds Reais
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground flex items-center gap-1.5">
+            {isLoading ? (
+              <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando odds...</>
+            ) : status === "error" ? (
+              <><WifiOff className="h-3.5 w-3.5 text-destructive" /> Dados offline</>
+            ) : (
+              <><Wifi className="h-3.5 w-3.5 text-sport" /> {odds.length} partidas com odds disponíveis</>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={refetch}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-secondary transition-colors"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          Atualizar
+        </button>
       </div>
 
-      <div className="space-y-4">
-        {predictions.map((p) => (
-          <div key={p.id} className="rounded-xl border border-border bg-card p-6 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display font-semibold text-foreground">
-                {p.casa} vs {p.fora}
-              </h3>
-              <div className="text-right">
-                <span className="text-xs text-muted-foreground">Modelo: {p.modeloVersao}</span>
-                <br />
-                <span className="text-xs text-muted-foreground">{p.algoritmo}</span>
+      {isLoading && odds.length === 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-6 animate-pulse">
+              <div className="h-5 bg-secondary rounded w-3/4 mb-4" />
+              <div className="space-y-3">
+                <div className="h-3 bg-secondary rounded w-full" />
+                <div className="h-3 bg-secondary rounded w-2/3" />
               </div>
             </div>
+          ))}
+        </div>
+      )}
 
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-foreground">Vitória {p.casa}</span>
-                  <span className="font-semibold text-sport">{p.probCasa.toFixed(1)}%</span>
-                </div>
-                <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full rounded-full bg-sport transition-all" style={{ width: getBarWidth(p.probCasa) }} />
+      {status === "error" && odds.length === 0 && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center">
+          <WifiOff className="mx-auto h-8 w-8 text-destructive/50 mb-3" />
+          <p className="text-sm text-muted-foreground mb-3">Não foi possível carregar odds.</p>
+          <button onClick={refetch} className="rounded-lg bg-sport px-4 py-2 text-xs font-medium text-sport-foreground hover:opacity-90">
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {odds.map((o) => {
+          const probHome = oddsToProb(o.homeOdds);
+          const probDraw = oddsToProb(o.drawOdds);
+          const probAway = oddsToProb(o.awayOdds);
+          const maxProb = Math.max(probHome, probDraw, probAway);
+
+          return (
+            <div key={o.id} className="rounded-xl border border-border bg-card p-6 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display font-semibold text-foreground">
+                  {o.homeTeam} vs {o.awayTeam}
+                </h3>
+                <div className="text-right">
+                  {o.tournament && <span className="text-xs text-muted-foreground block">{o.tournament}</span>}
+                  {o.date && <span className="text-xs text-muted-foreground">{o.date}</span>}
+                  {o.bookmaker && <span className="text-[10px] text-muted-foreground block">via {o.bookmaker}</span>}
                 </div>
               </div>
 
-              {isFootball && (
+              <div className="space-y-3">
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-foreground">Empate</span>
-                    <span className="font-semibold text-muted-foreground">{p.probEmpate.toFixed(1)}%</span>
+                    <span className="text-foreground flex items-center gap-1">
+                      {probHome === maxProb && <TrendingUp className="h-3 w-3 text-sport" />}
+                      Vitória {o.homeTeam}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">@{o.homeOdds.toFixed(2)}</span>
+                      <span className="font-semibold text-sport">{probHome.toFixed(1)}%</span>
+                    </div>
                   </div>
                   <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
-                    <div className="h-full rounded-full bg-muted-foreground/40 transition-all" style={{ width: getBarWidth(p.probEmpate) }} />
+                    <div className="h-full rounded-full bg-sport transition-all" style={{ width: `${Math.max(probHome, 2)}%` }} />
                   </div>
                 </div>
-              )}
 
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-foreground">Vitória {p.fora}</span>
-                  <span className="font-semibold text-muted-foreground">{p.probFora.toFixed(1)}%</span>
-                </div>
-                <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full rounded-full bg-muted-foreground/30 transition-all" style={{ width: getBarWidth(p.probFora) }} />
+                {o.drawOdds > 0 && (
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-foreground">Empate</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">@{o.drawOdds.toFixed(2)}</span>
+                        <span className="font-semibold text-muted-foreground">{probDraw.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
+                      <div className="h-full rounded-full bg-muted-foreground/40 transition-all" style={{ width: `${Math.max(probDraw, 2)}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-foreground flex items-center gap-1">
+                      {probAway === maxProb && <TrendingUp className="h-3 w-3 text-sport" />}
+                      Vitória {o.awayTeam}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">@{o.awayOdds.toFixed(2)}</span>
+                      <span className="font-semibold text-muted-foreground">{probAway.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
+                    <div className="h-full rounded-full bg-muted-foreground/30 transition-all" style={{ width: `${Math.max(probAway, 2)}%` }} />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

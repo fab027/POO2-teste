@@ -7,13 +7,12 @@ import {
 } from "recharts";
 
 const Dashboard = () => {
-  const { sport, sportLabel } = useSport();
+  const { sport, league } = useSport();
   const isFootball = sport === "football";
-  const sofaSport = isFootball ? "football" : "basketball";
 
-  const { data: standings, status: sStatus, refetch: refetchStandings } = useStandings(sofaSport);
-  const { lastMatches, nextMatches, status: mStatus, refetch: refetchMatches } = useMatches(sofaSport);
-  const { data: liveMatches, status: lStatus } = useLiveMatches(sofaSport);
+  const { data: standings, status: sStatus, refetch: refetchStandings } = useStandings(league.sofascoreUrl);
+  const { lastMatches, nextMatches, status: mStatus, refetch: refetchMatches } = useMatches(league.sofascoreUrl);
+  const { data: liveMatches, status: lStatus } = useLiveMatches();
 
   const isLoading = sStatus === "loading" || mStatus === "loading";
   const hasError = sStatus === "error" || mStatus === "error";
@@ -49,7 +48,7 @@ const Dashboard = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-foreground">
-            Dashboard — {sportLabel}
+            Dashboard — {league.flag} {league.name}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground flex items-center gap-2">
             {isLoading ? (
@@ -57,7 +56,7 @@ const Dashboard = () => {
             ) : hasError ? (
               <><WifiOff className="h-3.5 w-3.5 text-destructive" /> Dados offline — tente novamente</>
             ) : (
-              <><Wifi className="h-3.5 w-3.5 text-sport" /> Dados em tempo real via SofaScore</>
+              <><Wifi className="h-3.5 w-3.5 text-sport" /> Dados em tempo real</>
             )}
           </p>
         </div>
@@ -74,8 +73,9 @@ const Dashboard = () => {
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <p className="mb-2 text-xs font-semibold text-destructive uppercase tracking-wider">🔴 Ao Vivo agora</p>
           <div className="flex flex-wrap gap-3">
-            {liveMatches.slice(0, 5).map((m) => (
+            {liveMatches.slice(0, 8).map((m) => (
               <div key={m.id} className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 text-sm border border-border">
+                <span className="text-[10px] text-muted-foreground">{m.tournament}</span>
                 <span className="font-medium">{m.homeTeam}</span>
                 <span className="font-bold text-destructive">{m.homeScore} – {m.awayScore}</span>
                 <span className="font-medium">{m.awayTeam}</span>
@@ -87,7 +87,7 @@ const Dashboard = () => {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Equipes na Tabela" value={standings.length || "—"} icon={Trophy} subtitle={isFootball ? "Brasileirão Série A" : "NBA"} trend={standings.length > 0 ? "up" : undefined} trendValue={standings.length > 0 ? "Dados reais" : undefined} />
+        <StatCard title="Equipes na Tabela" value={standings.length || "—"} icon={Trophy} subtitle={league.name} trend={standings.length > 0 ? "up" : undefined} trendValue={standings.length > 0 ? "Dados reais" : undefined} />
         <StatCard title="Partidas Recentes" value={lastMatches.length || "—"} icon={CalendarDays} subtitle="desta temporada" />
         <StatCard title="Próximos Jogos" value={nextMatches.length || "—"} icon={Users} subtitle="agendados" />
         <StatCard title="Ao Vivo Agora" value={liveMatches.length || 0} icon={BrainCircuit} subtitle="partidas em andamento" trend={liveMatches.length > 0 ? "up" : undefined} trendValue={liveMatches.length > 0 ? "Live" : undefined} />
@@ -133,7 +133,7 @@ const Dashboard = () => {
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="mb-4 font-display text-sm font-semibold text-foreground flex items-center gap-2">
             <Trophy className="h-4 w-4 text-sport" />
-            Classificação — {isFootball ? "Brasileirão Série A" : "NBA"} (Top 10)
+            Classificação — {league.name} (Top 10)
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -247,7 +247,7 @@ const Dashboard = () => {
         <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center">
           <WifiOff className="mx-auto h-8 w-8 text-destructive/50 mb-3" />
           <p className="text-sm text-muted-foreground">
-            Não foi possível carregar dados do SofaScore. Verifique a conexão e tente novamente.
+            Não foi possível carregar dados. Verifique a conexão e tente novamente.
           </p>
           <button
             onClick={() => { refetchStandings(); refetchMatches(); }}

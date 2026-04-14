@@ -2,15 +2,16 @@ import { useState } from "react";
 import { Search, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
-import { useMatches } from "@/hooks/useSofaScoreData";
+import { useMatches, useTodayMatches, useLiveMatches } from "@/hooks/useSofaScoreData";
 import { SofaMatch } from "@/services/sofaScoreService";
 
 const statusConfig = (s: string) => {
-  if (s === "scheduled" || s === "Not started")
+  if (s === "scheduled" || s === "Not started" || s === "agendado")
     return { text: "Agendada", cls: "bg-sport-light text-sport" };
-  if (["Finished", "FT", "After Extra Time", "After Penalties"].includes(s))
+  if (["Finished", "FT", "After Extra Time", "After Penalties", "encerrado"].includes(s))
     return { text: "Finalizada", cls: "bg-secondary text-muted-foreground" };
   if (s === "Postponed") return { text: "Adiada", cls: "bg-orange-100 text-orange-600" };
+  if (s === "intervalo") return { text: "Intervalo", cls: "bg-orange-100 text-orange-600" };
   return { text: "Ao Vivo 🔴", cls: "bg-destructive/10 text-destructive" };
 };
 
@@ -65,47 +66,65 @@ const MatchCard = ({ m }: { m: SofaMatch & { _type?: string } }) => {
 };
 
 const MatchesPage = () => {
-  const { sport, sportLabel } = useSport();
-  const sofaSport = sport === "football" ? "football" : "basketball";
+  const { league } = useSport();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"all" | "past" | "upcoming">("all");
+  const [tab, setTab] = useState<"league" | "today" | "live">("league");
 
-  const { lastMatches, nextMatches, allMatches, status, error, refetch } = useMatches(sofaSport);
-  const isLoading = status === "loading";
+  const { lastMatches, nextMatches, allMatches, status, error, refetch } = useMatches(league.sofascoreUrl);
+  const { data: todayMatches, status: todayStatus, refetch: refetchToday } = useTodayMatches();
+  const { data: liveMatches, status: liveStatus, refetch: refetchLive } = useLiveMatches();
 
-  const filtered = allMatches.filter((m) => {
-    const q = search.toLowerCase();
-    const matchText =
-      m.homeTeam.toLowerCase().includes(q) ||
-      m.awayTeam.toLowerCase().includes(q) ||
-      m.tournament.toLowerCase().includes(q);
-    if (tab === "past") return matchText && (m as any)._type === "past";
-    if (tab === "upcoming") return matchText && (m as any)._type === "upcoming";
-    return matchText;
-  });
+  const isLoading = tab === "league" ? status === "loading" : tab === "today" ? todayStatus === "loading" : liveStatus === "loading";
+
+  const filtered = tab === "league"
+    ? allMatches.filter((m) => {
+        const q = search.toLowerCase();
+        return m.homeTeam.toLowerCase().includes(q) || m.awayTeam.toLowerCase().includes(q) || m.tournament.toLowerCase().includes(q);
+      })
+    : [];
+
+  const filteredToday = tab === "today"
+    ? todayMatches.filter((m) => {
+        const q = search.toLowerCase();
+        return m.homeTeam.toLowerCase().includes(q) || m.awayTeam.toLowerCase().includes(q) || m.tournament.toLowerCase().includes(q);
+      })
+    : [];
+
+  const filteredLive = tab === "live"
+    ? liveMatches.filter((m) => {
+        const q = search.toLowerCase();
+        return m.homeTeam.toLowerCase().includes(q) || m.awayTeam.toLowerCase().includes(q) || m.tournament.toLowerCase().includes(q);
+      })
+    : [];
+
+  const handleRefetch = () => {
+    if (tab === "league") refetch();
+    else if (tab === "today") refetchToday();
+    else refetchLive();
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-foreground">
-            Partidas — {sportLabel}
+            Partidas
           </h1>
           <p className="mt-1 text-sm text-muted-foreground flex items-center gap-1.5">
             {isLoading ? (
               <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando...</>
-            ) : status === "error" ? (
-              <><WifiOff className="h-3.5 w-3.5 text-destructive" /> Dados offline</>
             ) : (
               <><Wifi className="h-3.5 w-3.5 text-sport" />
-                {lastMatches.length} recentes · {nextMatches.length} agendadas — SofaScore
+                {tab === "league" && <>{lastMatches.length} recentes · {nextMatches.length} agendadas — {league.name}</>}
+                {tab === "today" && <>{todayMatches.length} jogos hoje</>}
+                {tab === "live" && <>{liveMatches.length} ao vivo agora</>}
               </>
             )}
           </p>
         </div>
         <div className="flex gap-2 items-center">
           <button
-            onClick={refetch}
+            onClick={handleRefetch}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-secondary transition-colors"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -125,13 +144,13 @@ const MatchesPage = () => {
 
       <div className="flex gap-1 rounded-lg bg-secondary p-1 w-fit">
         {[
-          { key: "all", label: `Todas (${allMatches.length})` },
-          { key: "past", label: `Finalizadas (${lastMatches.length})` },
-          { key: "upcoming", label: `Agendadas (${nextMatches.length})` },
+          { key: "league" as const, label: `${league.flag} ${league.name}` },
+          { key: "today" as const, label: `📅 Jogos de Hoje (${todayMatches.length})` },
+          { key: "live" as const, label: `🔴 Ao Vivo (${liveMatches.length})` },
         ].map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key as typeof tab)}
+            onClick={() => setTab(t.key)}
             className={`rounded-md px-4 py-2 text-sm font-medium transition-all ${
               tab === t.key
                 ? "bg-sport text-sport-foreground shadow-sm"
@@ -144,7 +163,7 @@ const MatchesPage = () => {
       </div>
 
       <div className="space-y-3">
-        {isLoading && allMatches.length === 0 && (
+        {isLoading && (
           [...Array(5)].map((_, i) => (
             <div key={i} className="rounded-xl border border-border bg-card p-5 animate-pulse">
               <div className="flex items-center justify-center gap-8">
@@ -156,23 +175,83 @@ const MatchesPage = () => {
           ))
         )}
 
-        {!isLoading && filtered.length === 0 && !error && (
-          <p className="text-center text-sm text-muted-foreground py-8">Nenhuma partida encontrada.</p>
+        {tab === "league" && !isLoading && filtered.length === 0 && !error && (
+          <p className="text-center text-sm text-muted-foreground py-8">Nenhuma partida encontrada para {league.name}.</p>
         )}
 
-        {error && allMatches.length === 0 && (
+        {tab === "league" && filtered.map((m) => (
+          <MatchCard key={`${m.id}_${(m as any)._type}`} m={m} />
+        ))}
+
+        {tab === "today" && !isLoading && filteredToday.length === 0 && (
+          <p className="text-center text-sm text-muted-foreground py-8">Nenhum jogo encontrado para hoje.</p>
+        )}
+
+        {tab === "today" && filteredToday.map((m) => {
+          const st = statusConfig(m.status);
+          return (
+            <div key={m.id} className="rounded-xl border border-border bg-card p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4">
+                <div className="text-right flex-1">
+                  <p className="font-display font-semibold text-foreground">{m.homeTeam}</p>
+                </div>
+                <div className="text-center">
+                  {m.homeScore !== null ? (
+                    <span className="font-display text-xl font-bold text-foreground">{m.homeScore} — {m.awayScore}</span>
+                  ) : (
+                    <span className="text-sm font-medium text-muted-foreground">{m.time || "vs"}</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="font-display font-semibold text-foreground">{m.awayTeam}</p>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-3 flex-wrap">
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${st.cls}`}>{st.text}</span>
+                <span className="text-xs text-muted-foreground">{m.tournament}</span>
+                {m.time && <span className="text-xs text-muted-foreground">{m.time}</span>}
+              </div>
+            </div>
+          );
+        })}
+
+        {tab === "live" && !isLoading && filteredLive.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-lg font-medium text-muted-foreground">Nenhum jogo ao vivo no momento</p>
+            <p className="text-sm text-muted-foreground mt-1">Os jogos ao vivo aparecerão aqui automaticamente</p>
+          </div>
+        )}
+
+        {tab === "live" && filteredLive.map((m) => (
+          <div key={m.id} className="rounded-xl border border-destructive/30 bg-card p-5 hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-4">
+              <div className="text-right flex-1">
+                <p className="font-display font-semibold text-foreground">{m.homeTeam}</p>
+              </div>
+              <div className="text-center">
+                <span className="font-display text-xl font-bold text-destructive">{m.homeScore} — {m.awayScore}</span>
+                {m.minute && <p className="text-xs text-destructive font-medium mt-1">{m.minute}'</p>}
+              </div>
+              <div className="flex-1">
+                <p className="font-display font-semibold text-foreground">{m.awayTeam}</p>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-3">
+              <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium bg-destructive/10 text-destructive">🔴 Ao Vivo</span>
+              <span className="text-xs text-muted-foreground">{m.tournament}</span>
+            </div>
+          </div>
+        ))}
+
+        {error && allMatches.length === 0 && tab === "league" && (
           <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center">
             <WifiOff className="mx-auto h-8 w-8 text-destructive/50 mb-3" />
-            <p className="text-sm text-muted-foreground mb-3">Não foi possível carregar dados do SofaScore.</p>
+            <p className="text-sm text-muted-foreground mb-3">Não foi possível carregar dados.</p>
             <button onClick={refetch} className="rounded-lg bg-sport px-4 py-2 text-xs font-medium text-sport-foreground hover:opacity-90 transition-opacity">
               Tentar novamente
             </button>
           </div>
         )}
-
-        {filtered.map((m) => (
-          <MatchCard key={`${m.id}_${(m as any)._type}`} m={m} />
-        ))}
       </div>
     </div>
   );
