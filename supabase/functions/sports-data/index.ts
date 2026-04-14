@@ -9,8 +9,7 @@ const corsHeaders = {
 const FOOTBALL_URL = "https://www.sofascore.com/tournament/football/brazil/brasileirao-serie-a/325";
 const NBA_URL = "https://www.sofascore.com/tournament/basketball/usa/nba/132";
 
-// Scrape a SofaScore page and extract structured data via Firecrawl JSON extraction
-const scrapeWithJsonExtract = async (url: string, prompt: string, schema: Record<string, unknown>) => {
+const scrapeExtract = async (url: string, prompt: string, schema: Record<string, unknown>) => {
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
 
@@ -24,7 +23,8 @@ const scrapeWithJsonExtract = async (url: string, prompt: string, schema: Record
     },
     body: JSON.stringify({
       url,
-      formats: [{ type: "json", schema, prompt }],
+      formats: ["extract"],
+      extract: { schema, prompt },
       waitFor: 5000,
     }),
   });
@@ -36,39 +36,9 @@ const scrapeWithJsonExtract = async (url: string, prompt: string, schema: Record
   }
 
   const result = await res.json();
-  const json = result.data?.json || result.json;
-  console.log(`Extracted JSON keys:`, json ? Object.keys(json) : "null");
-  return json;
-};
-
-// Scrape page as markdown and parse key data
-const scrapeAsMarkdown = async (url: string) => {
-  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
-
-  console.log(`Scraping markdown: ${url}`);
-
-  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["markdown"],
-      waitFor: 5000,
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`Firecrawl HTTP ${res.status}:`, errText);
-    throw new Error(`Firecrawl error: ${res.status}`);
-  }
-
-  const result = await res.json();
-  return result.data?.markdown || result.markdown || "";
+  const extracted = result.data?.extract || result.extract;
+  console.log(`Extracted keys:`, extracted ? Object.keys(extracted) : "null");
+  return extracted;
 };
 
 const standingsSchema = {
@@ -95,27 +65,6 @@ const standingsSchema = {
   },
 };
 
-const matchesSchema = {
-  type: "object",
-  properties: {
-    matches: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          homeTeam: { type: "string" },
-          awayTeam: { type: "string" },
-          homeScore: { type: ["number", "null"] },
-          awayScore: { type: ["number", "null"] },
-          status: { type: "string" },
-          date: { type: "string" },
-          round: { type: ["number", "null"] },
-        },
-      },
-    },
-  },
-};
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -129,9 +78,9 @@ serve(async (req) => {
     const leagueName = sport === "basketball" ? "NBA" : "Brasileirão Série A";
 
     if (action === "standings") {
-      const data = await scrapeWithJsonExtract(
+      const data = await scrapeExtract(
         baseUrl,
-        `Extract the full league standings table from this ${leagueName} page. Include position, team name (full and short/abbreviation), games played, wins, draws, losses, goals/points scored, goals/points conceded, and total points for every team in the table.`,
+        `Extract the complete league standings table. For each team include: position number, full team name, short name/abbreviation, games played (J), wins (V), draws (E), losses (D), goals/points scored (GP), goals/points conceded (GC), and total points (Pts).`,
         standingsSchema
       );
 
@@ -152,15 +101,33 @@ serve(async (req) => {
       result = { seasonId: 0, teams };
     } else if (action === "matches_last" || action === "matches_next") {
       const isLast = action === "matches_last";
-      const tabUrl = `${baseUrl}#tab:matches`;
 
-      const data = await scrapeWithJsonExtract(
-        tabUrl,
-        `Extract all ${isLast ? "recent/completed" : "upcoming/scheduled"} matches from this ${leagueName} page. For each match include home team name, away team name, ${isLast ? "home score, away score," : ""} match status (Finished/Scheduled/Live), date and time, and round number if available.`,
-        matchesSchema
+      const data = await scrapeExtract(
+        baseUrl,
+        `Extract ${isLast ? "the most recent completed/finished" : "the upcoming/scheduled"} matches. For each match: home team name, away team name, ${isLast ? "home score, away score," : ""} status (Finished/Scheduled), date and time as ISO string, round number.`,
+        {
+          type: "object",
+          properties: {
+            matches: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  homeTeam: { type: "string" },
+                  awayTeam: { type: "string" },
+                  homeScore: { type: "number" },
+                  awayScore: { type: "number" },
+                  status: { type: "string" },
+                  date: { type: "string" },
+                  round: { type: "number" },
+                },
+              },
+            },
+          },
+        }
       );
 
-      const matches = (data?.matches || []).map((m: any, i: number) => ({
+      result = (data?.matches || []).map((m: any, i: number) => ({
         id: (isLast ? 1000 : 5000) + i,
         homeTeam: m.homeTeam || "Unknown",
         awayTeam: m.awayTeam || "Unknown",
@@ -171,14 +138,11 @@ serve(async (req) => {
         tournament: leagueName,
         roundInfo: m.round || null,
       }));
-
-      result = matches;
     } else if (action === "live") {
-      // For live, try the live scores page
       try {
-        const data = await scrapeWithJsonExtract(
+        const data = await scrapeExtract(
           "https://www.sofascore.com/",
-          `Extract any live ${sport === "basketball" ? "basketball" : "football"} matches currently being played. Include home team, away team, current scores, match minute/period, and tournament name.`,
+          `Extract any live ${sport === "basketball" ? "basketball" : "football"} matches currently being played right now. Include home team, away team, current scores, match minute, tournament name.`,
           {
             type: "object",
             properties: {
@@ -191,7 +155,7 @@ serve(async (req) => {
                     awayTeam: { type: "string" },
                     homeScore: { type: "number" },
                     awayScore: { type: "number" },
-                    minute: { type: ["number", "null"] },
+                    minute: { type: "number" },
                     tournament: { type: "string" },
                   },
                 },
@@ -199,22 +163,16 @@ serve(async (req) => {
             },
           }
         );
-        result = (data?.matches || [])
-          .filter((m: any) => {
-            const t = (m.tournament || "").toLowerCase();
-            if (sport === "basketball") return t.includes("nba") || t.includes("basket");
-            return t.includes("brasil") || t.includes("série") || t.includes("football");
-          })
-          .map((m: any, i: number) => ({
-            id: 9000 + i,
-            homeTeam: m.homeTeam,
-            awayTeam: m.awayTeam,
-            homeScore: m.homeScore ?? 0,
-            awayScore: m.awayScore ?? 0,
-            status: "Live",
-            minute: m.minute,
-            tournament: m.tournament || leagueName,
-          }));
+        result = (data?.matches || []).map((m: any, i: number) => ({
+          id: 9000 + i,
+          homeTeam: m.homeTeam,
+          awayTeam: m.awayTeam,
+          homeScore: m.homeScore ?? 0,
+          awayScore: m.awayScore ?? 0,
+          status: "Live",
+          minute: m.minute || null,
+          tournament: m.tournament || leagueName,
+        }));
       } catch {
         result = [];
       }
