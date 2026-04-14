@@ -44,15 +44,6 @@ export type SofaMatch = {
   roundInfo: number | null;
 };
 
-export type SofaPlayer = {
-  id: number;
-  name: string;
-  position: string;
-  nationality: string;
-  age: number | null;
-  jersey: string | null;
-};
-
 export type SofaLiveMatch = {
   id: number;
   homeTeam: string;
@@ -60,77 +51,92 @@ export type SofaLiveMatch = {
   homeScore: number;
   awayScore: number;
   status: string;
-  minute: number | null;
+  minute: string | null;
+  tournament: string;
+};
+
+export type TodayMatch = {
+  id: number;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  status: string;
+  time: string | null;
+  tournament: string;
+};
+
+export type PlayerSearchResult = {
+  id: number;
+  name: string;
+  url: string;
+  description: string;
+};
+
+export type PlayerSeasonStats = {
+  season: string;
+  team: string;
+  matchesPlayed: number;
+  minutes: number;
+  goals: number;
+  assists: number;
+  rating: number;
+};
+
+export type PlayerDetail = {
+  name: string;
+  team: string;
+  position: string;
+  nationality: string;
+  age: number | null;
+  height: string;
+  foot: string;
+  shirtNumber: number | null;
+  seasons: PlayerSeasonStats[];
+};
+
+export type OddsMatch = {
+  id: number;
+  homeTeam: string;
+  awayTeam: string;
+  homeOdds: number;
+  drawOdds: number;
+  awayOdds: number;
+  bookmaker: string;
+  date: string | null;
   tournament: string;
 };
 
 export const sofaScoreService = {
-  async getStandings(
-    sport: "football" | "basketball"
-  ): Promise<{ seasonId: number; teams: SofaTeamStanding[] }> {
-    return callSportsData({ action: "standings", sport });
+  async getStandings(leagueUrl: string): Promise<{ teams: SofaTeamStanding[] }> {
+    return callSportsData({ action: "standings", leagueUrl });
   },
 
-  async getLastMatches(sport: "football" | "basketball"): Promise<SofaMatch[]> {
-    return callSportsData({ action: "matches_last", sport });
+  async getLastMatches(leagueUrl: string): Promise<SofaMatch[]> {
+    return callSportsData({ action: "matches_last", leagueUrl });
   },
 
-  async getNextMatches(sport: "football" | "basketball"): Promise<SofaMatch[]> {
-    return callSportsData({ action: "matches_next", sport });
+  async getNextMatches(leagueUrl: string): Promise<SofaMatch[]> {
+    return callSportsData({ action: "matches_next", leagueUrl });
   },
 
-  async getTeamPlayers(teamId: number): Promise<SofaPlayer[]> {
-    return callSportsData({ action: "team_players", teamId });
+  async getLiveMatches(): Promise<SofaLiveMatch[]> {
+    return callSportsData({ action: "live" });
   },
 
-  async getLiveMatches(
-    sport: "football" | "basketball"
-  ): Promise<SofaLiveMatch[]> {
-    return callSportsData({ action: "live", sport });
+  async getTodayMatches(): Promise<TodayMatch[]> {
+    return callSportsData({ action: "today_matches" });
   },
 
-  async getTeamStats(
-    sport: "football" | "basketball",
-    teamId: number
-  ): Promise<Record<string, unknown>> {
-    return callSportsData({ action: "team_stats", sport, teamId });
+  async searchPlayer(query: string): Promise<PlayerSearchResult[]> {
+    return callSportsData({ action: "player_search", query });
   },
-};
 
-export const brasileiraoTeamIds: Record<string, number> = {
-  Flamengo: 5981,
-  Palmeiras: 1963,
-  Corinthians: 1957,
-  "São Paulo": 1981,
-  Internacional: 1966,
-  Grêmio: 5926,
-  Fluminense: 1961,
-  "Atlético MG": 1977,
-  "Atlético GO": 7314,
-  Santos: 1968,
-  Bahia: 1955,
-  Ceará: 2001,
-  Fortaleza: 2020,
-  "Athletico PR": 1967,
-  "América MG": 1973,
-  "RB Bragantino": 1999,
-  Botafogo: 1958,
-  Juventude: 1980,
-  Cuiabá: 49202,
-  Coritiba: 1982,
-  Goiás: 1960,
-  Avaí: 7315,
-  Sport: 1959,
-  Chapecoense: 21845,
-  Cruzeiro: 1954,
-  Vasco: 1974,
-};
+  async getPlayerStats(playerUrl: string): Promise<PlayerDetail> {
+    return callSportsData({ action: "player_stats", playerUrl });
+  },
 
-export const nbaTeamIds: Record<string, number> = {
-  "Los Angeles Lakers": 3428,
-  "Golden State Warriors": 3428,
-  "Boston Celtics": 3410,
-  "Miami Heat": 3416,
-  "Chicago Bulls": 3411,
-  "Brooklyn Nets": 3409,
+  async getOdds(): Promise<OddsMatch[]> {
+    return callSportsData({ action: "odds" });
+  },
 };

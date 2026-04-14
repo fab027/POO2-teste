@@ -12,12 +12,11 @@ const PositionBadge = ({ pos }: { pos: number }) => {
 };
 
 const TeamsPage = () => {
-  const { sport, sportLabel } = useSport();
-  const sofaSport = sport === "football" ? "football" : "basketball";
+  const { sport, league } = useSport();
   const [search, setSearch] = useState("");
   const { toggleFavorite, isFavorite } = useFavorites();
 
-  const { data: standings, status, error, refetch } = useStandings(sofaSport);
+  const { data: standings, status, error, refetch } = useStandings(league.sofascoreUrl);
   const isLoading = status === "loading";
 
   const filtered = standings.filter(
@@ -26,14 +25,12 @@ const TeamsPage = () => {
       t.shortName?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const leagueLabel = sport === "football" ? "Brasileirão Série A" : "NBA";
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-foreground">
-            Equipes — {sportLabel}
+            Equipes — {league.flag} {league.name}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground flex items-center gap-1.5">
             {isLoading ? (
@@ -42,7 +39,7 @@ const TeamsPage = () => {
               <><WifiOff className="h-3.5 w-3.5 text-destructive" /> Dados offline</>
             ) : (
               <><Wifi className="h-3.5 w-3.5 text-sport" />
-                {standings.length} equipes · {leagueLabel} — SofaScore
+                {standings.length} equipes · {league.name}
               </>
             )}
           </p>
@@ -66,19 +63,6 @@ const TeamsPage = () => {
           </div>
         </div>
       </div>
-
-      {sport === "football" && standings.length > 0 && (
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-sport" />
-            <span>Classificação para Libertadores (1º–4º)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-destructive" />
-            <span>Rebaixamento (18º–20º)</span>
-          </div>
-        </div>
-      )}
 
       {standings.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
@@ -145,7 +129,7 @@ const TeamsPage = () => {
       {error && standings.length === 0 && (
         <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center">
           <WifiOff className="mx-auto h-8 w-8 text-destructive/50 mb-3" />
-          <p className="text-sm text-muted-foreground mb-3">Não foi possível carregar dados do SofaScore.</p>
+          <p className="text-sm text-muted-foreground mb-3">Não foi possível carregar dados.</p>
           <button onClick={refetch} className="rounded-lg bg-sport px-4 py-2 text-xs font-medium text-sport-foreground hover:opacity-90">
             Tentar novamente
           </button>

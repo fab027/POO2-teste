@@ -3,8 +3,11 @@ import {
   sofaScoreService,
   SofaTeamStanding,
   SofaMatch,
-  SofaPlayer,
   SofaLiveMatch,
+  TodayMatch,
+  PlayerSearchResult,
+  PlayerDetail,
+  OddsMatch,
 } from "@/services/sofaScoreService";
 
 // Simple in-memory cache (TTL 5 min)
@@ -23,16 +26,16 @@ function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
 type Status = "idle" | "loading" | "success" | "error";
 
 // ─── Standings ──────────────────────────────────────────────────────────────
-export function useStandings(sport: "football" | "basketball") {
+export function useStandings(leagueUrl: string) {
   const [data, setData] = useState<SofaTeamStanding[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setStatus("loading");
     try {
-      const res = await cached(`standings_${sport}`, () =>
-        sofaScoreService.getStandings(sport)
+      const res = await cached(`standings_${leagueUrl}`, () =>
+        sofaScoreService.getStandings(leagueUrl)
       );
       setData(res.teams);
       setStatus("success");
@@ -40,32 +43,28 @@ export function useStandings(sport: "football" | "basketball") {
       setError(e instanceof Error ? e.message : "Erro ao carregar classificação");
       setStatus("error");
     }
-  }, [sport]);
+  }, [leagueUrl]);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    fetchData();
+  }, [fetchData]);
 
-  return { data, status, error, refetch: fetch };
+  return { data, status, error, refetch: fetchData };
 }
 
 // ─── Matches ─────────────────────────────────────────────────────────────────
-export function useMatches(sport: "football" | "basketball") {
+export function useMatches(leagueUrl: string) {
   const [lastMatches, setLastMatches] = useState<SofaMatch[]>([]);
   const [nextMatches, setNextMatches] = useState<SofaMatch[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setStatus("loading");
     try {
       const [last, next] = await Promise.all([
-        cached(`last_${sport}`, () =>
-          sofaScoreService.getLastMatches(sport)
-        ),
-        cached(`next_${sport}`, () =>
-          sofaScoreService.getNextMatches(sport)
-        ),
+        cached(`last_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
+        cached(`next_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
       ]);
       setLastMatches(last);
       setNextMatches(next);
@@ -74,35 +73,35 @@ export function useMatches(sport: "football" | "basketball") {
       setError(e instanceof Error ? e.message : "Erro ao carregar partidas");
       setStatus("error");
     }
-  }, [sport]);
+  }, [leagueUrl]);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    fetchData();
+  }, [fetchData]);
 
   const allMatches: SofaMatch[] = [
     ...lastMatches.map((m) => ({ ...m, _type: "past" as const })),
     ...nextMatches.map((m) => ({ ...m, _type: "upcoming" as const })),
   ];
 
-  return { lastMatches, nextMatches, allMatches, status, error, refetch: fetch };
+  return { lastMatches, nextMatches, allMatches, status, error, refetch: fetchData };
 }
 
 // ─── Live Matches ─────────────────────────────────────────────────────────────
-export function useLiveMatches(sport: "football" | "basketball") {
+export function useLiveMatches() {
   const [data, setData] = useState<SofaLiveMatch[]>([]);
   const [status, setStatus] = useState<Status>("idle");
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setStatus("loading");
     try {
-      const key = `live_${sport}`;
+      const key = "live_all";
       const hit = cache[key];
       let res: SofaLiveMatch[];
       if (hit && Date.now() - hit.ts < 30_000) {
         res = hit.data as SofaLiveMatch[];
       } else {
-        res = await sofaScoreService.getLiveMatches(sport);
+        res = await sofaScoreService.getLiveMatches();
         cache[key] = { data: res, ts: Date.now() };
       }
       setData(res);
@@ -110,38 +109,106 @@ export function useLiveMatches(sport: "football" | "basketball") {
     } catch {
       setStatus("error");
     }
-  }, [sport]);
+  }, []);
 
   useEffect(() => {
-    fetch();
-    const interval = setInterval(fetch, 60_000);
+    fetchData();
+    const interval = setInterval(fetchData, 60_000);
     return () => clearInterval(interval);
-  }, [fetch]);
+  }, [fetchData]);
 
-  return { data, status, refetch: fetch };
+  return { data, status, refetch: fetchData };
 }
 
-// ─── Team Players ─────────────────────────────────────────────────────────────
-export function useTeamPlayers(teamId: number | null) {
-  const [data, setData] = useState<SofaPlayer[]>([]);
+// ─── Today Matches ───────────────────────────────────────────────────────────
+export function useTodayMatches() {
+  const [data, setData] = useState<TodayMatch[]>([]);
   const [status, setStatus] = useState<Status>("idle");
-  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setStatus("loading");
+    try {
+      const res = await cached("today_matches", () => sofaScoreService.getTodayMatches());
+      setData(res);
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
-    if (!teamId) return;
+    fetchData();
+  }, [fetchData]);
+
+  return { data, status, refetch: fetchData };
+}
+
+// ─── Player Search ────────────────────────────────────────────────────────────
+export function usePlayerSearch() {
+  const [results, setResults] = useState<PlayerSearchResult[]>([]);
+  const [status, setStatus] = useState<Status>("idle");
+
+  const search = useCallback(async (query: string) => {
+    if (!query || query.length < 2) {
+      setResults([]);
+      return;
+    }
     setStatus("loading");
-    cached(`players_${teamId}`, () =>
-      sofaScoreService.getTeamPlayers(teamId)
-    )
+    try {
+      const res = await cached(`player_search_${query}`, () =>
+        sofaScoreService.searchPlayer(query)
+      );
+      setResults(res);
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  return { results, status, search };
+}
+
+// ─── Player Stats ─────────────────────────────────────────────────────────────
+export function usePlayerStats(playerUrl: string | null) {
+  const [data, setData] = useState<PlayerDetail | null>(null);
+  const [status, setStatus] = useState<Status>("idle");
+
+  useEffect(() => {
+    if (!playerUrl) {
+      setData(null);
+      return;
+    }
+    setStatus("loading");
+    cached(`player_${playerUrl}`, () => sofaScoreService.getPlayerStats(playerUrl))
       .then((res) => {
         setData(res);
         setStatus("success");
       })
-      .catch((e) => {
-        setError(e.message);
-        setStatus("error");
-      });
-  }, [teamId]);
+      .catch(() => setStatus("error"));
+  }, [playerUrl]);
 
-  return { data, status, error };
+  return { data, status };
+}
+
+// ─── Odds ─────────────────────────────────────────────────────────────────────
+export function useOdds() {
+  const [data, setData] = useState<OddsMatch[]>([]);
+  const [status, setStatus] = useState<Status>("idle");
+
+  const fetchData = useCallback(async () => {
+    setStatus("loading");
+    try {
+      const res = await cached("odds", () => sofaScoreService.getOdds());
+      setData(res);
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, status, refetch: fetchData };
 }

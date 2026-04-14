@@ -1,78 +1,254 @@
-import { useState } from "react";
-import { Search } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Search, RefreshCw, User, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
-import FavoriteButton from "@/components/FavoriteButton";
-import { footballAthletes, basketballAthletes } from "@/data/mockData";
+import { useStandings, usePlayerSearch, usePlayerStats } from "@/hooks/useSofaScoreData";
+import { PlayerDetail } from "@/services/sofaScoreService";
+
+const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => void }) => {
+  const getRatingColor = (r: number) => {
+    if (r >= 7.5) return "bg-green-600 text-white";
+    if (r >= 7.0) return "bg-green-500 text-white";
+    if (r >= 6.5) return "bg-yellow-500 text-white";
+    return "bg-muted text-foreground";
+  };
+
+  return (
+    <div className="space-y-6">
+      <button onClick={onBack} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <ArrowLeft className="h-4 w-4" /> Voltar
+      </button>
+
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-start gap-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-sport/10 text-sport">
+            <User className="h-10 w-10" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-display text-2xl font-bold text-foreground">{player.name}</h2>
+            <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
+              {player.team && <span>🏟️ {player.team}</span>}
+              {player.position && <span>📋 {player.position}</span>}
+              {player.nationality && <span>🌍 {player.nationality}</span>}
+              {player.age && <span>🎂 {player.age} anos</span>}
+              {player.height && <span>📏 {player.height}</span>}
+              {player.foot && <span>🦶 {player.foot}</span>}
+              {player.shirtNumber && <span>👕 #{player.shirtNumber}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {player.seasons && player.seasons.length > 0 && (
+        <div className="rounded-xl border border-border bg-card">
+          <div className="border-b border-border px-6 py-4">
+            <h3 className="font-display text-sm font-semibold text-foreground">Estatísticas por Temporada</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Ano</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Time</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">MP</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">MIN</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">GLS</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">AST</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">ASR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {player.seasons.map((s, i) => (
+                  <tr key={i} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
+                    <td className="px-4 py-3 font-medium text-foreground">{s.season}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{s.team}</td>
+                    <td className="px-4 py-3 text-center text-foreground">{s.matchesPlayed}</td>
+                    <td className="px-4 py-3 text-center text-muted-foreground">{s.minutes}</td>
+                    <td className="px-4 py-3 text-center font-semibold text-foreground">{s.goals}</td>
+                    <td className="px-4 py-3 text-center text-foreground">{s.assists}</td>
+                    <td className="px-4 py-3 text-center">
+                      {s.rating > 0 ? (
+                        <span className={`inline-flex items-center justify-center rounded-md px-2 py-0.5 text-xs font-bold ${getRatingColor(s.rating)}`}>
+                          {s.rating.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-border px-6 py-3">
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium">Legenda</summary>
+              <div className="mt-2 space-y-1">
+                <p><strong>MP</strong> — Jogos disputados</p>
+                <p><strong>MIN</strong> — Minutos jogados</p>
+                <p><strong>GLS</strong> — Gols</p>
+                <p><strong>AST</strong> — Assistências</p>
+                <p><strong>ASR</strong> — Média das notas SofaScore</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AthletesPage = () => {
-  const { sport, sportLabel } = useSport();
-  const isFootball = sport === "football";
+  const { league } = useSport();
   const [search, setSearch] = useState("");
-  const athletes = (isFootball ? footballAthletes : basketballAthletes).filter(
-    (a: any) =>
-      a.nome.toLowerCase().includes(search.toLowerCase()) ||
-      a.equipe.toLowerCase().includes(search.toLowerCase()) ||
-      a.posicao.toLowerCase().includes(search.toLowerCase())
-  );
+  const [selectedPlayerUrl, setSelectedPlayerUrl] = useState<string | null>(null);
+  const [mode, setMode] = useState<"search" | "team">("search");
+
+  const { results: searchResults, status: searchStatus, search: doSearch } = usePlayerSearch();
+  const { data: playerData, status: playerStatus } = usePlayerStats(selectedPlayerUrl);
+  const { data: standings } = useStandings(league.sofascoreUrl);
+
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    if (value.length >= 3) {
+      doSearch(value);
+    }
+  }, [doSearch]);
+
+  if (selectedPlayerUrl && playerData) {
+    return (
+      <div className="space-y-6">
+        <PlayerCard player={playerData} onBack={() => { setSelectedPlayerUrl(null); }} />
+      </div>
+    );
+  }
+
+  if (selectedPlayerUrl && playerStatus === "loading") {
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setSelectedPlayerUrl(null)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
+        <div className="flex items-center justify-center py-20">
+          <RefreshCw className="h-6 w-6 animate-spin text-sport" />
+          <span className="ml-3 text-sm text-muted-foreground">Carregando dados do jogador...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">Atletas — {sportLabel}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Estatísticas individuais dos atletas</p>
-        </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar atleta, equipe ou posição..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+          <h1 className="font-display text-2xl font-bold text-foreground">
+            Atletas
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Busque jogadores e veja estatísticas detalhadas do SofaScore
+          </p>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-border bg-card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-secondary/50">
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Atleta</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Posição</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Equipe</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                {isFootball ? "Gols" : "PPG"}
-              </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                {isFootball ? "Assistências" : "RPG"}
-              </th>
-              <th className="px-4 py-3 text-center font-medium text-muted-foreground">⭐</th>
-            </tr>
-          </thead>
-          <tbody>
-            {athletes.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum atleta encontrado.</td></tr>
-            )}
-            {athletes.map((a: any) => (
-              <tr key={a.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
-                <td className="px-4 py-3 font-medium text-foreground">{a.nome}</td>
-                <td className="px-4 py-3 text-muted-foreground">{a.posicao}</td>
-                <td className="px-4 py-3 text-muted-foreground">{a.equipe}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center rounded-md bg-sport-light px-2 py-0.5 text-xs font-semibold text-sport">
-                    {isFootball ? a.gols : a.pontos}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{isFootball ? a.assistencias : a.rebotes}</td>
-                <td className="px-4 py-3 text-center">
-                  <FavoriteButton tipo="atleta" referenciaId={a.id} nome={a.nome} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex gap-1 rounded-lg bg-secondary p-1 w-fit">
+        <button
+          onClick={() => setMode("search")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-all ${
+            mode === "search" ? "bg-sport text-sport-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          🔍 Buscar por Nome
+        </button>
+        <button
+          onClick={() => setMode("team")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-all ${
+            mode === "team" ? "bg-sport text-sport-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          🏟️ Por Equipe ({league.name})
+        </button>
       </div>
+
+      {mode === "search" && (
+        <div className="space-y-4">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Ex: Neymar, Haaland, Messi..."
+              value={search}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {searchStatus === "loading" && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Buscando jogadores...
+            </div>
+          )}
+
+          {searchResults.length > 0 && (
+            <div className="space-y-2">
+              {searchResults.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setSelectedPlayerUrl(r.url)}
+                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:shadow-md transition-shadow"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sport/10 text-sport">
+                    <User className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground">{r.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{r.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {search.length >= 3 && searchResults.length === 0 && searchStatus === "success" && (
+            <p className="text-sm text-muted-foreground py-4">Nenhum jogador encontrado para "{search}".</p>
+          )}
+
+          {search.length < 3 && (
+            <p className="text-sm text-muted-foreground py-4">
+              Digite pelo menos 3 caracteres para buscar um jogador no SofaScore.
+            </p>
+          )}
+        </div>
+      )}
+
+      {mode === "team" && (
+        <div className="space-y-4">
+          {standings.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Carregando equipes de {league.name}...
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {standings.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setMode("search");
+                    handleSearch(t.name);
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left hover:shadow-md transition-shadow"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sport/10 text-sport font-bold text-sm">
+                    {t.position}
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">{t.name}</p>
+                    <p className="text-xs text-muted-foreground">{t.shortName} · {t.points} pts</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
