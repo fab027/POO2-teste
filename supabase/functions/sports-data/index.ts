@@ -9,37 +9,53 @@ const corsHeaders = {
 const FOOTBALL_URL = "https://www.sofascore.com/tournament/football/brazil/brasileirao-serie-a/325";
 const NBA_URL = "https://www.sofascore.com/tournament/basketball/usa/nba/132";
 
-const scrapeExtract = async (url: string, prompt: string, schema: Record<string, unknown>) => {
+const scrapeExtract = async (url: string, prompt: string, schema: Record<string, unknown>, retries = 2): Promise<any> => {
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
 
-  console.log(`Scraping: ${url}`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    console.log(`Scraping (attempt ${attempt + 1}): ${url}`);
 
-  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["extract"],
-      extract: { schema, prompt },
-      waitFor: 1000,
-      timeout: 25000,
-    }),
-  });
+    try {
+      const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          formats: ["extract"],
+          extract: { schema, prompt },
+          waitFor: 3000,
+          timeout: 45000,
+        }),
+      });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`Firecrawl HTTP ${res.status}:`, errText);
-    throw new Error(`Firecrawl error: ${res.status}`);
+      if (res.status === 408 && attempt < retries) {
+        console.warn(`Firecrawl timeout (408), retrying in ${(attempt + 1) * 2}s...`);
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Firecrawl HTTP ${res.status}:`, errText);
+        throw new Error(`Firecrawl error: ${res.status}`);
+      }
+
+      const result = await res.json();
+      const extracted = result.data?.extract || result.extract;
+      console.log(`Extracted keys:`, extracted ? Object.keys(extracted) : "null");
+      return extracted;
+    } catch (err) {
+      if (attempt < retries && err instanceof Error && err.message.includes("408")) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+      throw err;
+    }
   }
-
-  const result = await res.json();
-  const extracted = result.data?.extract || result.extract;
-  console.log(`Extracted keys:`, extracted ? Object.keys(extracted) : "null");
-  return extracted;
 };
 
 const standingsSchema = {
@@ -162,7 +178,8 @@ serve(async (req) => {
                 },
               },
             },
-          }
+          },
+          1
         );
         result = (data?.matches || []).map((m: any, i: number) => ({
           id: 9000 + i,
