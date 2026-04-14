@@ -6,17 +6,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SOFASCORE_BASE = "https://api.sofascore.com/api/v1";
-const FOOTBALL_BRASILEIRO_ID = 325;
-const NBA_ID = 132;
+const FOOTBALL_URL = "https://www.sofascore.com/tournament/football/brazil/brasileirao-serie-a/325";
+const NBA_URL = "https://www.sofascore.com/tournament/basketball/usa/nba/132";
 
-// Use Firecrawl to fetch SofaScore API JSON endpoints
-const fetchViaFirecrawl = async (path: string) => {
+// Scrape a SofaScore page and extract structured data via Firecrawl JSON extraction
+const scrapeWithJsonExtract = async (url: string, prompt: string, schema: Record<string, unknown>) => {
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
 
-  const url = `${SOFASCORE_BASE}${path}`;
-  console.log(`Fetching: ${url}`);
+  console.log(`Scraping: ${url}`);
 
   const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
@@ -26,8 +24,8 @@ const fetchViaFirecrawl = async (path: string) => {
     },
     body: JSON.stringify({
       url,
-      formats: ["rawHtml"],
-      waitFor: 3000,
+      formats: [{ type: "json", schema, prompt }],
+      waitFor: 5000,
     }),
   });
 
@@ -38,55 +36,84 @@ const fetchViaFirecrawl = async (path: string) => {
   }
 
   const result = await res.json();
-  const rawHtml = result.data?.rawHtml || result.rawHtml || "";
-
-  console.log(`Raw response length: ${rawHtml.length}, first 300 chars: ${rawHtml.substring(0, 300)}`);
-
-  // API endpoints return JSON — it may be raw or wrapped in <pre>/<body> tags
-  let jsonStr = rawHtml;
-
-  // Try to extract from <pre> tag
-  const preMatch = rawHtml.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
-  if (preMatch) {
-    jsonStr = preMatch[1];
-  } else {
-    // Try to extract from <body> tag  
-    const bodyMatch = rawHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    if (bodyMatch) {
-      jsonStr = bodyMatch[1];
-    }
-  }
-
-  // Strip any remaining HTML tags
-  jsonStr = jsonStr.replace(/<[^>]+>/g, "").trim();
-  // Decode HTML entities
-  jsonStr = jsonStr
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
-
-  // If it looks like the page returned an error/block page, try markdown
-  if (!jsonStr.startsWith("{") && !jsonStr.startsWith("[")) {
-    console.error("Response doesn't look like JSON. Content:", jsonStr.substring(0, 500));
-    throw new Error("SofaScore returned non-JSON content (possibly blocked)");
-  }
-
-  try {
-    return JSON.parse(jsonStr);
-  } catch (e) {
-    console.error("JSON parse failed:", e, "Content:", jsonStr.substring(0, 500));
-    throw new Error("Failed to parse SofaScore JSON response");
-  }
+  const json = result.data?.json || result.json;
+  console.log(`Extracted JSON keys:`, json ? Object.keys(json) : "null");
+  return json;
 };
 
-const getLatestSeasonId = async (sport: string, tournamentId: number) => {
-  const data = await fetchViaFirecrawl(`/sport/${sport}/tournament/${tournamentId}/seasons`);
-  const seasons: any[] = data.seasons || [];
-  if (!seasons.length) throw new Error("No seasons found");
-  return seasons[0].id;
+// Scrape page as markdown and parse key data
+const scrapeAsMarkdown = async (url: string) => {
+  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
+
+  console.log(`Scraping markdown: ${url}`);
+
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["markdown"],
+      waitFor: 5000,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Firecrawl HTTP ${res.status}:`, errText);
+    throw new Error(`Firecrawl error: ${res.status}`);
+  }
+
+  const result = await res.json();
+  return result.data?.markdown || result.markdown || "";
+};
+
+const standingsSchema = {
+  type: "object",
+  properties: {
+    teams: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          position: { type: "number" },
+          name: { type: "string" },
+          shortName: { type: "string" },
+          played: { type: "number" },
+          wins: { type: "number" },
+          draws: { type: "number" },
+          losses: { type: "number" },
+          scored: { type: "number" },
+          conceded: { type: "number" },
+          points: { type: "number" },
+        },
+      },
+    },
+  },
+};
+
+const matchesSchema = {
+  type: "object",
+  properties: {
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          homeTeam: { type: "string" },
+          awayTeam: { type: "string" },
+          homeScore: { type: ["number", "null"] },
+          awayScore: { type: ["number", "null"] },
+          status: { type: "string" },
+          date: { type: "string" },
+          round: { type: ["number", "null"] },
+        },
+      },
+    },
+  },
 };
 
 serve(async (req) => {
@@ -95,80 +122,106 @@ serve(async (req) => {
   }
 
   try {
-    const { action, sport, teamId } = await req.json();
+    const { action, sport } = await req.json();
     let result: any = {};
 
-    const tournamentId = sport === "basketball" ? NBA_ID : FOOTBALL_BRASILEIRO_ID;
-    const sportSlug = sport === "basketball" ? "basketball" : "football";
+    const baseUrl = sport === "basketball" ? NBA_URL : FOOTBALL_URL;
+    const leagueName = sport === "basketball" ? "NBA" : "Brasileirão Série A";
 
     if (action === "standings") {
-      const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchViaFirecrawl(
-        `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/standings/total`
+      const data = await scrapeWithJsonExtract(
+        baseUrl,
+        `Extract the full league standings table from this ${leagueName} page. Include position, team name (full and short/abbreviation), games played, wins, draws, losses, goals/points scored, goals/points conceded, and total points for every team in the table.`,
+        standingsSchema
       );
-      const rows = data.standings?.[0]?.rows || [];
-      result = {
-        seasonId,
-        teams: rows.map((r: any) => ({
-          position: r.position, id: r.team.id, name: r.team.name,
-          shortName: r.team.shortName, played: r.matches, wins: r.wins,
-          draws: r.draws, losses: r.losses, scored: r.scoresFor,
-          conceded: r.scoresAgainst, points: r.points,
-        })),
-      };
-    } else if (action === "matches_last") {
-      const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchViaFirecrawl(
-        `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/events/last/0`
-      );
-      const events: any[] = data.events || [];
-      result = events.slice(0, 20).map((e: any) => ({
-        id: e.id, homeTeam: e.homeTeam.name, awayTeam: e.awayTeam.name,
-        homeScore: e.homeScore?.current ?? null, awayScore: e.awayScore?.current ?? null,
-        status: e.status?.description || "Unknown", startTimestamp: e.startTimestamp,
-        tournament: e.tournament?.name || "", roundInfo: e.roundInfo?.round || null,
+
+      const teams = (data?.teams || []).map((t: any, i: number) => ({
+        position: t.position || i + 1,
+        id: i + 1000,
+        name: t.name || "Unknown",
+        shortName: t.shortName || (t.name || "UNK").substring(0, 3).toUpperCase(),
+        played: t.played || 0,
+        wins: t.wins || 0,
+        draws: t.draws || 0,
+        losses: t.losses || 0,
+        scored: t.scored || 0,
+        conceded: t.conceded || 0,
+        points: t.points || 0,
       }));
-    } else if (action === "matches_next") {
-      const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchViaFirecrawl(
-        `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/events/next/0`
+
+      result = { seasonId: 0, teams };
+    } else if (action === "matches_last" || action === "matches_next") {
+      const isLast = action === "matches_last";
+      const tabUrl = `${baseUrl}#tab:matches`;
+
+      const data = await scrapeWithJsonExtract(
+        tabUrl,
+        `Extract all ${isLast ? "recent/completed" : "upcoming/scheduled"} matches from this ${leagueName} page. For each match include home team name, away team name, ${isLast ? "home score, away score," : ""} match status (Finished/Scheduled/Live), date and time, and round number if available.`,
+        matchesSchema
       );
-      const events: any[] = data.events || [];
-      result = events.slice(0, 20).map((e: any) => ({
-        id: e.id, homeTeam: e.homeTeam.name, awayTeam: e.awayTeam.name,
-        homeScore: null, awayScore: null, status: "scheduled",
-        startTimestamp: e.startTimestamp, tournament: e.tournament?.name || "",
-        roundInfo: e.roundInfo?.round || null,
+
+      const matches = (data?.matches || []).map((m: any, i: number) => ({
+        id: (isLast ? 1000 : 5000) + i,
+        homeTeam: m.homeTeam || "Unknown",
+        awayTeam: m.awayTeam || "Unknown",
+        homeScore: isLast ? (m.homeScore ?? null) : null,
+        awayScore: isLast ? (m.awayScore ?? null) : null,
+        status: m.status || (isLast ? "Finished" : "scheduled"),
+        startTimestamp: m.date ? Math.floor(new Date(m.date).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        tournament: leagueName,
+        roundInfo: m.round || null,
       }));
-    } else if (action === "team_players" && teamId) {
-      const data = await fetchViaFirecrawl(`/team/${teamId}/players`);
-      const players: any[] = data.players || [];
-      result = players.map((p: any) => ({
-        id: p.player.id, name: p.player.name, position: p.player.position,
-        nationality: p.player.country?.name || "",
-        age: p.player.dateOfBirthTimestamp
-          ? new Date().getFullYear() - new Date(p.player.dateOfBirthTimestamp * 1000).getFullYear()
-          : null,
-        jersey: p.player.jerseyNumber || null,
-      }));
-    } else if (action === "team_stats" && teamId) {
-      const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchViaFirecrawl(
-        `/team/${teamId}/statistics/season/${seasonId}/tournament/${tournamentId}`
-      );
-      result = data.statistics || {};
+
+      result = matches;
     } else if (action === "live") {
-      const data = await fetchViaFirecrawl(`/sport/${sportSlug}/events/live`);
-      const events: any[] = data.events || [];
-      result = events.slice(0, 30).map((e: any) => ({
-        id: e.id, homeTeam: e.homeTeam.name, awayTeam: e.awayTeam.name,
-        homeScore: e.homeScore?.current ?? 0, awayScore: e.awayScore?.current ?? 0,
-        status: e.status?.description || "Live",
-        minute: e.time?.currentPeriodStartTimestamp
-          ? Math.floor((Date.now() / 1000 - e.time.currentPeriodStartTimestamp) / 60)
-          : null,
-        tournament: e.tournament?.name || "",
-      }));
+      // For live, try the live scores page
+      try {
+        const data = await scrapeWithJsonExtract(
+          "https://www.sofascore.com/",
+          `Extract any live ${sport === "basketball" ? "basketball" : "football"} matches currently being played. Include home team, away team, current scores, match minute/period, and tournament name.`,
+          {
+            type: "object",
+            properties: {
+              matches: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    homeTeam: { type: "string" },
+                    awayTeam: { type: "string" },
+                    homeScore: { type: "number" },
+                    awayScore: { type: "number" },
+                    minute: { type: ["number", "null"] },
+                    tournament: { type: "string" },
+                  },
+                },
+              },
+            },
+          }
+        );
+        result = (data?.matches || [])
+          .filter((m: any) => {
+            const t = (m.tournament || "").toLowerCase();
+            if (sport === "basketball") return t.includes("nba") || t.includes("basket");
+            return t.includes("brasil") || t.includes("série") || t.includes("football");
+          })
+          .map((m: any, i: number) => ({
+            id: 9000 + i,
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            homeScore: m.homeScore ?? 0,
+            awayScore: m.awayScore ?? 0,
+            status: "Live",
+            minute: m.minute,
+            tournament: m.tournament || leagueName,
+          }));
+      } catch {
+        result = [];
+      }
+    } else if (action === "team_players") {
+      result = [];
+    } else if (action === "team_stats") {
+      result = {};
     }
 
     return new Response(JSON.stringify(result), {
