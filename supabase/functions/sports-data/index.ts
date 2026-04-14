@@ -25,7 +25,8 @@ const scrapeExtract = async (url: string, prompt: string, schema: Record<string,
       url,
       formats: ["extract"],
       extract: { schema, prompt },
-      waitFor: 5000,
+      waitFor: 1000,
+      timeout: 25000,
     }),
   });
 
