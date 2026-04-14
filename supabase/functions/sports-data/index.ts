@@ -6,69 +6,62 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Multiple API base URLs — try mirror first, then primary, then web proxy
-const API_BASES = [
-  "https://api.sofascore.app/api/v1",
-  "https://www.sofascore.com/api/v1",
-  "https://api.sofascore.com/api/v1",
-];
-
+const SOFASCORE_BASE = "https://api.sofascore.com/api/v1";
 const FOOTBALL_BRASILEIRO_ID = 325;
 const NBA_ID = 132;
 
-// Rotate user agents to reduce fingerprinting
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-];
+// Use Firecrawl to scrape SofaScore API endpoints (bypasses TLS fingerprinting)
+const fetchViaFirecrawl = async (path: string) => {
+  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
 
-const pickUA = () => USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+  const url = `${SOFASCORE_BASE}${path}`;
+  console.log(`Fetching via Firecrawl: ${url}`);
 
-const buildHeaders = () => ({
-  "User-Agent": pickUA(),
-  Accept: "application/json, text/plain, */*",
-  "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-  "Accept-Encoding": "gzip, deflate, br",
-  "Cache-Control": "no-cache",
-  Pragma: "no-cache",
-  "Sec-Ch-Ua": '"Chromium";v="125", "Not(A:Brand";v="24", "Google Chrome";v="125"',
-  "Sec-Ch-Ua-Mobile": "?0",
-  "Sec-Ch-Ua-Platform": '"Windows"',
-  "Sec-Fetch-Dest": "empty",
-  "Sec-Fetch-Mode": "cors",
-  "Sec-Fetch-Site": "same-origin",
-  Referer: "https://www.sofascore.com/",
-  Origin: "https://www.sofascore.com",
-});
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["html"],
+      waitFor: 2000,
+    }),
+  });
 
-// Try each base URL until one works
-const fetchSofaScore = async (path: string) => {
-  let lastError: Error | null = null;
-  for (const base of API_BASES) {
-    try {
-      const url = `${base}${path}`;
-      console.log(`Trying: ${url}`);
-      const res = await fetch(url, { headers: buildHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`Success from ${base}`);
-        return data;
-      }
-      console.warn(`${base} returned ${res.status}`);
-      lastError = new Error(`API ${res.status} from ${base}`);
-    } catch (e) {
-      console.warn(`${base} fetch error:`, e);
-      lastError = e instanceof Error ? e : new Error(String(e));
-    }
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`Firecrawl error ${res.status}:`, err);
+    throw new Error(`Firecrawl error: ${res.status}`);
   }
-  throw lastError || new Error("All API endpoints failed");
+
+  const result = await res.json();
+  // Firecrawl returns the page HTML — for API endpoints returning JSON,
+  // the "html" will contain the raw JSON wrapped in <pre> or directly
+  const html = result.data?.html || result.html || "";
+
+  // Extract JSON from the response — API endpoints return raw JSON
+  let jsonStr = html;
+  // Remove HTML wrappers if present
+  const preMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+  if (preMatch) jsonStr = preMatch[1];
+  // Remove any remaining HTML tags
+  jsonStr = jsonStr.replace(/<[^>]+>/g, "").trim();
+  // Decode HTML entities
+  jsonStr = jsonStr.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    console.error("Failed to parse JSON from Firecrawl response. HTML:", html.substring(0, 500));
+    throw new Error("Failed to parse SofaScore data from Firecrawl");
+  }
 };
 
 const getLatestSeasonId = async (sport: string, tournamentId: number) => {
-  const data = await fetchSofaScore(`/sport/${sport}/tournament/${tournamentId}/seasons`);
+  const data = await fetchViaFirecrawl(`/sport/${sport}/tournament/${tournamentId}/seasons`);
   const seasons: any[] = data.seasons || [];
   if (!seasons.length) throw new Error("No seasons found");
   return seasons[0].id;
@@ -88,7 +81,7 @@ serve(async (req) => {
 
     if (action === "standings") {
       const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchSofaScore(
+      const data = await fetchViaFirecrawl(
         `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/standings/total`
       );
       const rows = data.standings?.[0]?.rows || [];
@@ -103,7 +96,7 @@ serve(async (req) => {
       };
     } else if (action === "matches_last") {
       const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchSofaScore(
+      const data = await fetchViaFirecrawl(
         `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/events/last/0`
       );
       const events: any[] = data.events || [];
@@ -115,7 +108,7 @@ serve(async (req) => {
       }));
     } else if (action === "matches_next") {
       const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchSofaScore(
+      const data = await fetchViaFirecrawl(
         `/sport/${sportSlug}/tournament/${tournamentId}/season/${seasonId}/events/next/0`
       );
       const events: any[] = data.events || [];
@@ -126,7 +119,7 @@ serve(async (req) => {
         roundInfo: e.roundInfo?.round || null,
       }));
     } else if (action === "team_players" && teamId) {
-      const data = await fetchSofaScore(`/team/${teamId}/players`);
+      const data = await fetchViaFirecrawl(`/team/${teamId}/players`);
       const players: any[] = data.players || [];
       result = players.map((p: any) => ({
         id: p.player.id, name: p.player.name, position: p.player.position,
@@ -138,12 +131,12 @@ serve(async (req) => {
       }));
     } else if (action === "team_stats" && teamId) {
       const seasonId = await getLatestSeasonId(sportSlug, tournamentId);
-      const data = await fetchSofaScore(
+      const data = await fetchViaFirecrawl(
         `/team/${teamId}/statistics/season/${seasonId}/tournament/${tournamentId}`
       );
       result = data.statistics || {};
     } else if (action === "live") {
-      const data = await fetchSofaScore(`/sport/${sportSlug}/events/live`);
+      const data = await fetchViaFirecrawl(`/sport/${sportSlug}/events/live`);
       const events: any[] = data.events || [];
       result = events.slice(0, 30).map((e: any) => ({
         id: e.id, homeTeam: e.homeTeam.name, awayTeam: e.awayTeam.name,
