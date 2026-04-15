@@ -8,6 +8,7 @@ import {
   PlayerSearchResult,
   PlayerDetail,
   OddsMatch,
+  TeamPlayer,
 } from "@/services/sofaScoreService";
 
 // Simple in-memory cache (TTL 5 min)
@@ -211,4 +212,27 @@ export function useOdds() {
   }, [fetchData]);
 
   return { data, status, refetch: fetchData };
+}
+
+// ─── Team Players ─────────────────────────────────────────────────────────────
+export function useTeamPlayers(teamName: string | null) {
+  const [data, setData] = useState<TeamPlayer[]>([]);
+  const [status, setStatus] = useState<Status>("idle");
+
+  useEffect(() => {
+    if (!teamName) {
+      setData([]);
+      setStatus("idle");
+      return;
+    }
+    setStatus("loading");
+    cached(`team_players_${teamName}`, () => sofaScoreService.getTeamPlayers(teamName))
+      .then((res) => {
+        setData(res);
+        setStatus("success");
+      })
+      .catch(() => setStatus("error"));
+  }, [teamName]);
+
+  return { data, status };
 }
