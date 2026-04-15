@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
-import { Search, RefreshCw, User, ArrowLeft } from "lucide-react";
+import { Search, RefreshCw, User, ArrowLeft, Shield } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
-import { useStandings, usePlayerSearch, usePlayerStats } from "@/hooks/useSofaScoreData";
-import { PlayerDetail } from "@/services/sofaScoreService";
+import { useStandings, usePlayerSearch, usePlayerStats, useTeamPlayers } from "@/hooks/useSofaScoreData";
+import { PlayerDetail, TeamPlayer } from "@/services/sofaScoreService";
 
 const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => void }) => {
   const getRatingColor = (r: number) => {
@@ -102,11 +102,13 @@ const AthletesPage = () => {
   const { league } = useSport();
   const [search, setSearch] = useState("");
   const [selectedPlayerUrl, setSelectedPlayerUrl] = useState<string | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [mode, setMode] = useState<"search" | "team">("search");
 
   const { results: searchResults, status: searchStatus, search: doSearch } = usePlayerSearch();
   const { data: playerData, status: playerStatus } = usePlayerStats(selectedPlayerUrl);
   const { data: standings } = useStandings(league.sofascoreUrl);
+  const { data: teamPlayers, status: teamPlayersStatus } = useTeamPlayers(selectedTeam);
 
   const handleSearch = useCallback((value: string) => {
     setSearch(value);
@@ -114,6 +116,13 @@ const AthletesPage = () => {
       doSearch(value);
     }
   }, [doSearch]);
+
+  const handlePlayerFromTeam = (player: TeamPlayer) => {
+    // Search for the player on SofaScore to get their profile URL
+    doSearch(player.name);
+    setMode("search");
+    setSearch(player.name);
+  };
 
   if (selectedPlayerUrl && playerData) {
     return (
@@ -141,9 +150,7 @@ const AthletesPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">
-            Atletas
-          </h1>
+          <h1 className="font-display text-2xl font-bold text-foreground">Atletas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Busque jogadores e veja estatísticas detalhadas do SofaScore
           </p>
@@ -152,7 +159,7 @@ const AthletesPage = () => {
 
       <div className="flex gap-1 rounded-lg bg-secondary p-1 w-fit">
         <button
-          onClick={() => setMode("search")}
+          onClick={() => { setMode("search"); setSelectedTeam(null); }}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-all ${
             mode === "search" ? "bg-sport text-sport-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -219,8 +226,9 @@ const AthletesPage = () => {
         </div>
       )}
 
-      {mode === "team" && (
+      {mode === "team" && !selectedTeam && (
         <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Selecione uma equipe para ver o elenco profissional masculino:</p>
           {standings.length === 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <RefreshCw className="h-4 w-4 animate-spin" /> Carregando equipes de {league.name}...
@@ -230,10 +238,7 @@ const AthletesPage = () => {
               {standings.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => {
-                    setMode("search");
-                    handleSearch(t.name);
-                  }}
+                  onClick={() => setSelectedTeam(t.name)}
                   className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left hover:shadow-md transition-shadow"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sport/10 text-sport font-bold text-sm">
@@ -245,6 +250,78 @@ const AthletesPage = () => {
                   </div>
                 </button>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === "team" && selectedTeam && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setSelectedTeam(null)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Voltar às equipes
+          </button>
+
+          <div className="flex items-center gap-3">
+            <Shield className="h-6 w-6 text-sport" />
+            <h2 className="font-display text-xl font-bold text-foreground">
+              Elenco — {selectedTeam}
+            </h2>
+          </div>
+
+          {teamPlayersStatus === "loading" && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Carregando elenco profissional masculino...
+            </div>
+          )}
+
+          {teamPlayersStatus === "error" && (
+            <p className="text-sm text-destructive py-4">Erro ao carregar o elenco. Tente novamente.</p>
+          )}
+
+          {teamPlayersStatus === "success" && teamPlayers.length === 0 && (
+            <p className="text-sm text-muted-foreground py-4">Nenhum jogador encontrado para {selectedTeam}.</p>
+          )}
+
+          {teamPlayers.length > 0 && (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/50">
+                    <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground w-12">#</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Jogador</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Posição</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Nacionalidade</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">Idade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamPlayers.map((p) => (
+                    <tr
+                      key={p.id}
+                      onClick={() => handlePlayerFromTeam(p)}
+                      className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3 text-center font-mono text-muted-foreground">
+                        {p.shirtNumber ?? "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sport/10 text-sport">
+                            <User className="h-4 w-4" />
+                          </div>
+                          <span className="font-medium text-foreground">{p.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{p.position}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{p.nationality}</td>
+                      <td className="px-4 py-3 text-center text-foreground">{p.age ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
