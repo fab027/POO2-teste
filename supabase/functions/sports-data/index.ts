@@ -420,8 +420,8 @@ serve(async (req) => {
 
       // Strategy 1: Direct SofaScore search
       const searches = [
-        `"${teamName}" squad players site:sofascore.com/team/football`,
-        `${teamName} football team sofascore.com/team`,
+        `${teamName} football team squad site:sofascore.com`,
+        `${teamName} sofascore football team`,
       ];
 
       for (const q of searches) {
@@ -432,11 +432,10 @@ serve(async (req) => {
           for (const r of results) {
             if (!r.url) continue;
             console.log(`  Result: ${r.url} - ${r.title || ""}`);
-            if (
-              r.url.includes("sofascore.com/team/football") &&
-              !(/women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior/i.test(r.url)) &&
-              !(/women|feminino|futsal/i.test(r.title || ""))
-            ) {
+            // Match both URL formats: /football/team/ and /team/football/
+            const isSofaTeam = r.url.includes("sofascore.com/football/team/") || r.url.includes("sofascore.com/team/football/");
+            const isExcluded = /women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior|academia|talento/i.test(r.url + " " + (r.title || ""));
+            if (isSofaTeam && !isExcluded) {
               teamPageUrl = r.url;
               break;
             }
