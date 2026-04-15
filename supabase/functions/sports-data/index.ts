@@ -6,14 +6,19 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function requireFirecrawlKey(): string {
+  const key = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!key) throw new Error("FIRECRAWL_API_KEY not configured");
+  return key;
+}
+
 const scrapeExtract = async (
   url: string,
   prompt: string,
   schema: Record<string, unknown>,
   retries = 2
 ): Promise<any> => {
-  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
+  const key = requireFirecrawlKey();
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     console.log(`Scraping (attempt ${attempt + 1}): ${url}`);
@@ -21,7 +26,7 @@ const scrapeExtract = async (
       const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+          Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -34,7 +39,7 @@ const scrapeExtract = async (
       });
 
       if (res.status === 408 && attempt < retries) {
-        console.warn(`Timeout 408, retrying in ${(attempt + 1) * 2}s...`);
+        console.warn(`Timeout 408, retrying...`);
         await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
         continue;
       }
@@ -60,20 +65,25 @@ const scrapeExtract = async (
 };
 
 const firecrawlSearch = async (query: string, limit = 5): Promise<any[]> => {
-  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY not configured");
+  const key = requireFirecrawlKey();
 
+  console.log(`Searching: "${query}" (limit ${limit})`);
   const res = await fetch("https://api.firecrawl.dev/v1/search", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, limit }),
   });
 
-  if (!res.ok) throw new Error(`Search error: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Search error ${res.status}:`, errText);
+    throw new Error(`Search error: ${res.status}`);
+  }
   const data = await res.json();
+  console.log(`Search returned ${(data.data || []).length} results`);
   return data.data || [];
 };
 
@@ -116,6 +126,67 @@ const matchesSchema = {
           status: { type: "string" },
           date: { type: "string" },
           round: { type: "number" },
+        },
+      },
+    },
+  },
+};
+
+const liveMatchesSchema = {
+  type: "object",
+  properties: {
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          homeTeam: { type: "string" },
+          awayTeam: { type: "string" },
+          homeScore: { type: "number" },
+          awayScore: { type: "number" },
+          minute: { type: "string" },
+          tournament: { type: "string" },
+          status: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const todayMatchesSchema = {
+  type: "object",
+  properties: {
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          homeTeam: { type: "string" },
+          awayTeam: { type: "string" },
+          homeScore: { type: "number" },
+          awayScore: { type: "number" },
+          status: { type: "string" },
+          time: { type: "string" },
+          tournament: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const squadSchema = {
+  type: "object",
+  properties: {
+    players: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          position: { type: "string" },
+          shirtNumber: { type: "number" },
+          nationality: { type: "string" },
+          age: { type: "number" },
         },
       },
     },
@@ -174,7 +245,7 @@ serve(async (req) => {
         awayTeam: m.awayTeam || "Unknown",
         homeScore: isLast ? (m.homeScore ?? null) : null,
         awayScore: isLast ? (m.awayScore ?? null) : null,
-        status: m.status || (isLast ? "Finished" : "scheduled"),
+        status: m.status || (isLast ? "Finished" : "Scheduled"),
         startTimestamp: m.date
           ? Math.floor(new Date(m.date).getTime() / 1000)
           : Math.floor(Date.now() / 1000),
@@ -184,79 +255,52 @@ serve(async (req) => {
       try {
         const data = await scrapeExtract(
           "https://www.placardefutebol.com.br/jogos-de-hoje",
-          `Extract ALL football matches currently being played LIVE right now (ao vivo, em andamento). For each match include: home team name, away team name, current home score, current away score, match minute or time elapsed, tournament/league name. ONLY include matches with status "ao vivo" or "em andamento" or that show a running minute. Do NOT include matches that are scheduled or finished.`,
-          {
-            type: "object",
-            properties: {
-              matches: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    homeTeam: { type: "string" },
-                    awayTeam: { type: "string" },
-                    homeScore: { type: "number" },
-                    awayScore: { type: "number" },
-                    minute: { type: "string" },
-                    tournament: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
+          `Look at ALL matches on this page. Extract ONLY the matches that are currently LIVE / "Ao Vivo" / in progress right now - they show a running minute like "32'" or "HT" or "2T" or have a pulsing live indicator. For each live match extract: home team name, away team name, current home score (number), current away score (number), current minute or period (e.g. "32'", "HT", "65'"), tournament/league name. If NO matches are currently live, return an empty matches array. Do NOT include finished or scheduled matches.`,
+          liveMatchesSchema,
           1
         );
-        result = (data?.matches || []).map((m: any, i: number) => ({
-          id: 9000 + i,
-          homeTeam: m.homeTeam,
-          awayTeam: m.awayTeam,
-          homeScore: m.homeScore ?? 0,
-          awayScore: m.awayScore ?? 0,
-          status: "Live",
-          minute: m.minute || null,
-          tournament: m.tournament || "Desconhecido",
-        }));
-      } catch {
+        const matches = data?.matches || [];
+        console.log(`Live matches found: ${matches.length}`);
+        result = matches
+          .filter((m: any) => m.homeTeam && m.awayTeam)
+          .map((m: any, i: number) => ({
+            id: 9000 + i,
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            homeScore: m.homeScore ?? 0,
+            awayScore: m.awayScore ?? 0,
+            status: "Live",
+            minute: m.minute || null,
+            tournament: m.tournament || "Desconhecido",
+          }));
+      } catch (err) {
+        console.error("Live scraping error:", err);
         result = [];
       }
     } else if (action === "today_matches") {
       try {
         const data = await scrapeExtract(
           "https://www.placardefutebol.com.br/jogos-de-hoje",
-          `Extract ALL football matches listed for today. For each match: home team name, away team name, home score (if started/finished), away score (if started/finished), status (ao vivo / agendado / encerrado / intervalo), time or minute, tournament/league name.`,
-          {
-            type: "object",
-            properties: {
-              matches: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    homeTeam: { type: "string" },
-                    awayTeam: { type: "string" },
-                    homeScore: { type: "number" },
-                    awayScore: { type: "number" },
-                    status: { type: "string" },
-                    time: { type: "string" },
-                    tournament: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
+          `Extract ALL football matches listed on this page for today. Include matches of ALL statuses: live, scheduled, finished, halftime. For each match: home team full name, away team full name, home score (number, null if not started), away score (number, null if not started), status text (ao vivo/agendado/encerrado/intervalo), scheduled time or current minute, tournament/league name.`,
+          todayMatchesSchema,
           1
         );
-        result = (data?.matches || []).map((m: any, i: number) => ({
-          id: 8000 + i,
-          homeTeam: m.homeTeam || "Unknown",
-          awayTeam: m.awayTeam || "Unknown",
-          homeScore: m.homeScore ?? null,
-          awayScore: m.awayScore ?? null,
-          status: m.status || "agendado",
-          time: m.time || null,
-          tournament: m.tournament || "Desconhecido",
-        }));
-      } catch {
+        const matches = data?.matches || [];
+        console.log(`Today matches found: ${matches.length}`);
+        result = matches
+          .filter((m: any) => m.homeTeam && m.awayTeam)
+          .map((m: any, i: number) => ({
+            id: 8000 + i,
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            homeScore: m.homeScore ?? null,
+            awayScore: m.awayScore ?? null,
+            status: m.status || "agendado",
+            time: m.time || null,
+            tournament: m.tournament || "Desconhecido",
+          }));
+      } catch (err) {
+        console.error("Today matches error:", err);
         result = [];
       }
     } else if (action === "player_search") {
@@ -270,16 +314,13 @@ serve(async (req) => {
       result = results
         .filter((r: any) => {
           if (!r.url || !r.url.includes("sofascore.com/player")) return false;
-          const desc = (r.description || "").toLowerCase();
-          const title = (r.title || "").toLowerCase();
-          // Filter out youth/women/futsal teams
+          const text = `${(r.title || "")} ${(r.description || "")}`.toLowerCase();
           const excludePatterns = [
-            /\bef\s*u\d+/i, /\bunder\s*\d+/i, /\bu\d{2}\b/i,
             /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
             /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
             /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
+            /\bu\d{2}\b/i, /\bunder\s*\d+/i,
           ];
-          const text = `${title} ${desc}`;
           return !excludePatterns.some((p) => p.test(text));
         })
         .slice(0, 5)
@@ -330,7 +371,7 @@ serve(async (req) => {
       try {
         const data = await scrapeExtract(
           "https://www.oddspedia.com/br/futebol",
-          `Extract betting odds for the next upcoming football matches. For each match: home team name, away team name, best odds for home win (decimal), best odds for draw (decimal), best odds for away win (decimal), bookmaker name, match date/time. Get at least 10 matches.`,
+          `Extract betting odds for the next upcoming football matches. For each match: home team name, away team name, best odds for home win (decimal), best odds for draw (decimal), best odds for away win (decimal), bookmaker name, match date/time, tournament name. Get at least 10 matches.`,
           {
             type: "object",
             properties: {
@@ -372,57 +413,70 @@ serve(async (req) => {
       const { teamName } = body;
       if (!teamName) throw new Error("teamName required");
 
-      // First, find the team page on SofaScore
-      const teamResults = await firecrawlSearch(
-        `${teamName} men's football team squad site:sofascore.com/team/football`,
-        3
-      );
-      const teamPage = teamResults.find((r: any) => 
-        r.url && r.url.includes("sofascore.com/team/football") && !(/women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior/i.test(r.url))
-      );
+      console.log(`Looking for team: ${teamName}`);
 
-      if (!teamPage) {
+      // Try multiple search strategies
+      let teamPageUrl: string | null = null;
+
+      // Strategy 1: Direct SofaScore search
+      // Single optimized search
+      const searches = [
+        `${teamName} football team squad site:sofascore.com`,
+      ];
+
+      for (const q of searches) {
+        if (teamPageUrl) break;
+        try {
+          const results = await firecrawlSearch(q, 5);
+          console.log(`Search "${q}" returned ${results.length} results`);
+          for (const r of results) {
+            if (!r.url) continue;
+            console.log(`  Result: ${r.url} - ${r.title || ""}`);
+            // Match both URL formats: /football/team/ and /team/football/
+            const isSofaTeam = r.url.includes("sofascore.com/football/team/") || r.url.includes("sofascore.com/team/football/");
+            const isExcluded = /women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior|academia|talento/i.test(r.url + " " + (r.title || ""));
+            if (isSofaTeam && !isExcluded) {
+              teamPageUrl = r.url;
+              break;
+            }
+          }
+        } catch (err) {
+          console.error(`Search failed for "${q}":`, err);
+        }
+      }
+
+      if (!teamPageUrl) {
+        console.log("No team page found, returning empty");
         result = [];
       } else {
-        const squadData = await scrapeExtract(
-          teamPage.url,
-          `Extract the CURRENT squad/roster of this men's professional football team. For each player get: full name, position (Goalkeeper/Defender/Midfielder/Forward), shirt number, nationality, age. Only include players from the MAIN/FIRST team squad, do NOT include youth or reserve players. List ALL players in the current squad.`,
-          {
-            type: "object",
-            properties: {
-              teamName: { type: "string" },
-              players: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    name: { type: "string" },
-                    position: { type: "string" },
-                    shirtNumber: { type: "number" },
-                    nationality: { type: "string" },
-                    age: { type: "number" },
-                  },
-                },
-              },
-            },
-          }
-        );
+        console.log(`Scraping squad from: ${teamPageUrl}`);
+        try {
+          const squadData = await scrapeExtract(
+            teamPageUrl,
+            `Extract the COMPLETE CURRENT first-team squad/roster of this men's professional football team. For EVERY player in the squad list: full name, playing position (Goalkeeper/Defender/Midfielder/Forward), shirt/jersey number, nationality, age. Include ALL players shown. Do NOT skip any player. This is the main senior men's team only.`,
+            squadSchema
+          );
 
-        // Now search for each player's individual SofaScore page
-        const players = squadData?.players || [];
-        result = players.map((p: any, i: number) => ({
-          id: i,
-          name: p.name || "Unknown",
-          position: p.position || "",
-          shirtNumber: p.shirtNumber || null,
-          nationality: p.nationality || "",
-          age: p.age || null,
-          url: "", // Will be resolved on click via player_search
-        }));
+          const players = squadData?.players || [];
+          console.log(`Squad extracted: ${players.length} players`);
+          result = players.map((p: any, i: number) => ({
+            id: i,
+            name: p.name || "Unknown",
+            position: p.position || "",
+            shirtNumber: p.shirtNumber || null,
+            nationality: p.nationality || "",
+            age: p.age || null,
+            url: "",
+          }));
+        } catch (err) {
+          console.error("Squad scrape failed:", err);
+          result = [];
+        }
       }
     } else if (action === "team_stats") {
       result = {};
     }
+
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
