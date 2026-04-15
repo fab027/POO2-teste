@@ -419,9 +419,9 @@ serve(async (req) => {
       let teamPageUrl: string | null = null;
 
       // Strategy 1: Direct SofaScore search
+      // Single optimized search
       const searches = [
         `${teamName} football team squad site:sofascore.com`,
-        `${teamName} sofascore football team`,
       ];
 
       for (const q of searches) {
