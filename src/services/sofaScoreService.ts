@@ -95,6 +95,16 @@ export type PlayerDetail = {
   seasons: PlayerSeasonStats[];
 };
 
+export type TeamPlayer = {
+  id: number;
+  name: string;
+  position: string;
+  shirtNumber: number | null;
+  nationality: string;
+  age: number | null;
+  url: string;
+};
+
 export type OddsMatch = {
   id: number;
   homeTeam: string;
@@ -138,5 +148,9 @@ export const sofaScoreService = {
 
   async getOdds(): Promise<OddsMatch[]> {
     return callSportsData({ action: "odds" });
+  },
+
+  async getTeamPlayers(teamName: string): Promise<TeamPlayer[]> {
+    return callSportsData({ action: "team_players", teamName });
   },
 };
