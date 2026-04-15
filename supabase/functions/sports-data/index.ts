@@ -422,7 +422,7 @@ serve(async (req) => {
       }
     } else if (action === "team_stats") {
       result = {};
-
+    }
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
