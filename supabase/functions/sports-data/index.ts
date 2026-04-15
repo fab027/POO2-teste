@@ -264,14 +264,28 @@ serve(async (req) => {
       if (!query) throw new Error("query required");
 
       const results = await firecrawlSearch(
-        `${query} site:sofascore.com/player`,
-        5
+        `${query} footballer stats site:sofascore.com/player`,
+        8
       );
       result = results
-        .filter((r: any) => r.url && r.url.includes("sofascore.com/player"))
+        .filter((r: any) => {
+          if (!r.url || !r.url.includes("sofascore.com/player")) return false;
+          const desc = (r.description || "").toLowerCase();
+          const title = (r.title || "").toLowerCase();
+          // Filter out youth/women/futsal teams
+          const excludePatterns = [
+            /\bef\s*u\d+/i, /\bunder\s*\d+/i, /\bu\d{2}\b/i,
+            /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
+            /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
+            /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
+          ];
+          const text = `${title} ${desc}`;
+          return !excludePatterns.some((p) => p.test(text));
+        })
+        .slice(0, 5)
         .map((r: any, i: number) => ({
           id: i,
-          name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "") || query,
+          name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
           url: r.url,
           description: r.description || "",
         }));
@@ -355,10 +369,59 @@ serve(async (req) => {
         result = [];
       }
     } else if (action === "team_players") {
-      result = [];
+      const { teamName } = body;
+      if (!teamName) throw new Error("teamName required");
+
+      // First, find the team page on SofaScore
+      const teamResults = await firecrawlSearch(
+        `${teamName} men's football team squad site:sofascore.com/team/football`,
+        3
+      );
+      const teamPage = teamResults.find((r: any) => 
+        r.url && r.url.includes("sofascore.com/team/football") && !(/women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior/i.test(r.url))
+      );
+
+      if (!teamPage) {
+        result = [];
+      } else {
+        const squadData = await scrapeExtract(
+          teamPage.url,
+          `Extract the CURRENT squad/roster of this men's professional football team. For each player get: full name, position (Goalkeeper/Defender/Midfielder/Forward), shirt number, nationality, age. Only include players from the MAIN/FIRST team squad, do NOT include youth or reserve players. List ALL players in the current squad.`,
+          {
+            type: "object",
+            properties: {
+              teamName: { type: "string" },
+              players: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    position: { type: "string" },
+                    shirtNumber: { type: "number" },
+                    nationality: { type: "string" },
+                    age: { type: "number" },
+                  },
+                },
+              },
+            },
+          }
+        );
+
+        // Now search for each player's individual SofaScore page
+        const players = squadData?.players || [];
+        result = players.map((p: any, i: number) => ({
+          id: i,
+          name: p.name || "Unknown",
+          position: p.position || "",
+          shirtNumber: p.shirtNumber || null,
+          nationality: p.nationality || "",
+          age: p.age || null,
+          url: "", // Will be resolved on click via player_search
+        }));
+      }
     } else if (action === "team_stats") {
       result = {};
-    }
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
