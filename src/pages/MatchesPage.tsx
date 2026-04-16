@@ -218,7 +218,29 @@ const MatchesPage = () => {
         {tab === "today" && !isLoading && filteredToday.length === 0 && (
           <p className="text-center text-sm text-muted-foreground py-8">Nenhum jogo encontrado para os filtros aplicados.</p>
         )}
-        {tab === "today" && filteredToday.map((m) => (<MatchCard key={m.id} m={m} />))}
+        {tab === "today" && filteredToday.map((m) => {
+          const st = statusConfig(m.status);
+          return (
+            <div key={m.id} className="rounded-xl border border-border bg-card p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4">
+                <div className="text-right flex-1"><p className="font-display font-semibold text-foreground">{m.homeTeam}</p></div>
+                <div className="text-center">
+                  {m.homeScore !== null ? (
+                    <span className="font-display text-xl font-bold text-foreground">{m.homeScore} — {m.awayScore}</span>
+                  ) : (
+                    <span className="text-sm font-medium text-muted-foreground">{m.time || "vs"}</span>
+                  )}
+                </div>
+                <div className="flex-1"><p className="font-display font-semibold text-foreground">{m.awayTeam}</p></div>
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-3 flex-wrap">
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${st.cls}`}>{st.text}</span>
+                <span className="text-xs text-muted-foreground">{m.tournament}</span>
+                {m.time && <span className="text-xs text-muted-foreground">{m.time}</span>}
+              </div>
+            </div>
+          );
+        })}
 
         {tab === "live" && !isLoading && filteredLive.length === 0 && (
           <div className="text-center py-12">
