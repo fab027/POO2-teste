@@ -1,23 +1,31 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { Loader2 } from "lucide-react";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     if (!email || !senha) {
       setError("Preencha todos os campos.");
       return;
     }
-    const success = login(email, senha);
-    if (success) navigate("/");
-    else setError("Credenciais inválidas.");
+    setLoading(true);
+    const { error: err } = await login(email, senha);
+    setLoading(false);
+    if (err) {
+      setError(err === "Invalid login credentials" ? "Credenciais inválidas." : err);
+      return;
+    }
+    navigate("/");
   };
 
   return (
@@ -41,8 +49,9 @@ const LoginPage = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-sport focus:outline-none focus:ring-1 focus:ring-sport"
+              className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="seu@email.com"
+              autoComplete="email"
             />
           </div>
           <div>
@@ -51,21 +60,24 @@ const LoginPage = () => {
               type="password"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
-              className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-sport focus:outline-none focus:ring-1 focus:ring-sport"
+              className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="••••••••"
+              autoComplete="current-password"
             />
           </div>
           <button
             type="submit"
-            className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
           >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Entrar
           </button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
           Não tem conta?{" "}
-          <Link to="/registro" className="font-medium text-sport hover:underline">
+          <Link to="/registro" className="font-medium text-primary hover:underline">
             Cadastre-se
           </Link>
         </p>

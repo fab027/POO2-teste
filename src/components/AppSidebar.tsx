@@ -1,7 +1,6 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useSport } from "@/contexts/SportContext";
 import { useAuth } from "@/contexts/AuthContext";
-import SportSwitcher from "./SportSwitcher";
 import LeagueSelector from "./LeagueSelector";
 import {
   LayoutDashboard,
@@ -13,6 +12,7 @@ import {
   Sparkles,
   LogOut,
   LogIn,
+  Lock,
 } from "lucide-react";
 
 const navItems = [
@@ -26,9 +26,15 @@ const navItems = [
 ];
 
 const AppSidebar = () => {
-  const { sportClass } = useSport();
-  const { user, logout, isAuthenticated } = useAuth();
+  const { sportClass, sport, sportLabel } = useSport();
+  const { profile, logout, isAuthenticated } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
 
   return (
     <aside className={`${sportClass} flex h-screen w-64 flex-col border-r border-border bg-card`}>
@@ -42,7 +48,14 @@ const AppSidebar = () => {
       </div>
 
       <div className="space-y-2 px-4 py-4">
-        <SportSwitcher />
+        {/* RF03: Sport locked by profile, shown as info badge */}
+        <div className="flex items-center justify-between rounded-lg bg-secondary px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">Esporte</span>
+          <span className="flex items-center gap-1.5 rounded-md bg-sport px-2 py-1 text-xs font-semibold text-sport-foreground">
+            <Lock className="h-3 w-3" />
+            {sport === "football" ? "⚽" : "🏀"} {sportLabel}
+          </span>
+        </div>
         <LeagueSelector />
       </div>
 
@@ -67,19 +80,21 @@ const AppSidebar = () => {
       </nav>
 
       <div className="border-t border-border p-4">
-        {isAuthenticated ? (
+        {isAuthenticated && profile ? (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sport text-sport-foreground text-xs font-bold">
-                {user?.nome.charAt(0).toUpperCase()}
+                {profile.nome.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-medium text-foreground">{user?.nome}</p>
-                <p className="truncate text-xs text-muted-foreground">{user?.perfil}</p>
+                <p className="truncate text-sm font-medium text-foreground">{profile.nome}</p>
+                <p className="truncate text-xs text-muted-foreground capitalize">
+                  Perfil: {profile.sport_profile}
+                </p>
               </div>
             </div>
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
             >
               <LogOut className="h-4 w-4" />
