@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Search, RefreshCw, User, ArrowLeft, Shield } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import { useStandings, usePlayerSearch, usePlayerStats, useTeamPlayers } from "@/hooks/useSofaScoreData";
 import { PlayerDetail, TeamPlayer } from "@/services/sofaScoreService";
+import FilterBar, { FilterDef } from "@/components/FilterBar";
 
 const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => void }) => {
   const getRatingColor = (r: number) => {
@@ -80,22 +81,27 @@ const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => vo
               </tbody>
             </table>
           </div>
-          <div className="border-t border-border px-6 py-3">
-            <details className="text-xs text-muted-foreground">
-              <summary className="cursor-pointer font-medium">Legenda</summary>
-              <div className="mt-2 space-y-1">
-                <p><strong>MP</strong> — Jogos disputados</p>
-                <p><strong>MIN</strong> — Minutos jogados</p>
-                <p><strong>GLS</strong> — Gols</p>
-                <p><strong>AST</strong> — Assistências</p>
-                <p><strong>ASR</strong> — Média das notas SofaScore</p>
-              </div>
-            </details>
-          </div>
         </div>
       )}
     </div>
   );
+};
+
+const positionGroup = (pos?: string) => {
+  if (!pos) return "other";
+  const p = pos.toLowerCase();
+  if (/(goleiro|goalkeeper|gk)/.test(p)) return "GOL";
+  if (/(zagueiro|defender|lateral|defens|cb|lb|rb)/.test(p)) return "DEF";
+  if (/(meia|midfielder|volante|cm|dm|am)/.test(p)) return "MEI";
+  if (/(atacante|forward|striker|winger|cf|st|lw|rw)/.test(p)) return "ATA";
+  return "other";
+};
+
+const ageBucket = (age?: number) => {
+  if (!age) return "unknown";
+  if (age < 21) return "u21";
+  if (age <= 28) return "21-28";
+  return "29+";
 };
 
 const AthletesPage = () => {
@@ -104,6 +110,7 @@ const AthletesPage = () => {
   const [selectedPlayerUrl, setSelectedPlayerUrl] = useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [mode, setMode] = useState<"search" | "team">("search");
+  const [filters, setFilters] = useState<Record<string, string>>({ position: "all", age: "all" });
 
   const { results: searchResults, status: searchStatus, search: doSearch } = usePlayerSearch();
   const { data: playerData, status: playerStatus } = usePlayerStats(selectedPlayerUrl);
@@ -112,17 +119,44 @@ const AthletesPage = () => {
 
   const handleSearch = useCallback((value: string) => {
     setSearch(value);
-    if (value.length >= 3) {
-      doSearch(value);
-    }
+    if (value.length >= 3) doSearch(value);
   }, [doSearch]);
 
   const handlePlayerFromTeam = (player: TeamPlayer) => {
-    // Search for the player on SofaScore to get their profile URL
     doSearch(player.name);
     setMode("search");
     setSearch(player.name);
   };
+
+  const filterDefs: FilterDef[] = [
+    {
+      key: "position",
+      label: "Posição",
+      options: [
+        { value: "GOL", label: "Goleiro" },
+        { value: "DEF", label: "Defesa" },
+        { value: "MEI", label: "Meio-campo" },
+        { value: "ATA", label: "Ataque" },
+      ],
+    },
+    {
+      key: "age",
+      label: "Idade",
+      options: [
+        { value: "u21", label: "Até 20 anos" },
+        { value: "21-28", label: "21–28 anos" },
+        { value: "29+", label: "29+ anos" },
+      ],
+    },
+  ];
+
+  const filteredTeamPlayers = useMemo(() => {
+    return teamPlayers.filter((p) => {
+      if (filters.position !== "all" && positionGroup(p.position) !== filters.position) return false;
+      if (filters.age !== "all" && ageBucket(p.age) !== filters.age) return false;
+      return true;
+    });
+  }, [teamPlayers, filters]);
 
   if (selectedPlayerUrl && playerData) {
     return (
@@ -148,13 +182,11 @@ const AthletesPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">Atletas</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Busque jogadores e veja estatísticas detalhadas do SofaScore
-          </p>
-        </div>
+      <div>
+        <h1 className="font-display text-2xl font-bold text-foreground">Atletas</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Busque jogadores e veja estatísticas detalhadas do SofaScore
+        </p>
       </div>
 
       <div className="flex gap-1 rounded-lg bg-secondary p-1 w-fit">
@@ -271,6 +303,13 @@ const AthletesPage = () => {
             </h2>
           </div>
 
+          <FilterBar
+            filters={filterDefs}
+            values={filters}
+            onChange={(k, v) => setFilters((p) => ({ ...p, [k]: v }))}
+            onClear={() => setFilters({ position: "all", age: "all" })}
+          />
+
           {teamPlayersStatus === "loading" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
               <RefreshCw className="h-4 w-4 animate-spin" /> Carregando elenco profissional masculino...
@@ -281,11 +320,15 @@ const AthletesPage = () => {
             <p className="text-sm text-destructive py-4">Erro ao carregar o elenco. Tente novamente.</p>
           )}
 
-          {teamPlayersStatus === "success" && teamPlayers.length === 0 && (
-            <p className="text-sm text-muted-foreground py-4">Nenhum jogador encontrado para {selectedTeam}.</p>
+          {teamPlayersStatus === "success" && filteredTeamPlayers.length === 0 && (
+            <p className="text-sm text-muted-foreground py-4">
+              {teamPlayers.length === 0
+                ? `Nenhum jogador encontrado para ${selectedTeam}.`
+                : "Nenhum jogador corresponde aos filtros aplicados."}
+            </p>
           )}
 
-          {teamPlayers.length > 0 && (
+          {filteredTeamPlayers.length > 0 && (
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -298,7 +341,7 @@ const AthletesPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {teamPlayers.map((p) => (
+                  {filteredTeamPlayers.map((p) => (
                     <tr
                       key={p.id}
                       onClick={() => handlePlayerFromTeam(p)}
