@@ -1,11 +1,51 @@
-import { RefreshCw, Wifi, WifiOff, BrainCircuit, TrendingUp, TrendingDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { RefreshCw, Wifi, WifiOff, BrainCircuit, TrendingUp } from "lucide-react";
 import { useOdds } from "@/hooks/useSofaScoreData";
+import FilterBar, { FilterDef } from "@/components/FilterBar";
 
 const oddsToProb = (odds: number) => (odds > 0 ? (1 / odds) * 100 : 0);
 
 const PredictionsPage = () => {
   const { data: odds, status, refetch } = useOdds();
   const isLoading = status === "loading";
+  const [filters, setFilters] = useState<Record<string, string>>({ market: "all", favorite: "all" });
+
+  const filterDefs: FilterDef[] = [
+    {
+      key: "market",
+      label: "Mercado",
+      options: [
+        { value: "1x2", label: "1X2 (Resultado)" },
+        { value: "draw", label: "Com chance de empate" },
+        { value: "no-draw", label: "Sem empate (basquete)" },
+      ],
+    },
+    {
+      key: "favorite",
+      label: "Favorito",
+      options: [
+        { value: "home", label: "Casa favorita" },
+        { value: "away", label: "Visitante favorito" },
+        { value: "balanced", label: "Equilibrado (<55%)" },
+      ],
+    },
+  ];
+
+  const filtered = useMemo(() => {
+    return odds.filter((o) => {
+      const ph = oddsToProb(o.homeOdds), pd = oddsToProb(o.drawOdds), pa = oddsToProb(o.awayOdds);
+      const max = Math.max(ph, pd, pa);
+
+      if (filters.market === "draw" && o.drawOdds <= 0) return false;
+      if (filters.market === "no-draw" && o.drawOdds > 0) return false;
+      if (filters.market === "1x2" && o.drawOdds <= 0) return false;
+
+      if (filters.favorite === "home" && ph !== max) return false;
+      if (filters.favorite === "away" && pa !== max) return false;
+      if (filters.favorite === "balanced" && max >= 55) return false;
+      return true;
+    });
+  }, [odds, filters]);
 
   return (
     <div className="space-y-6">
@@ -21,7 +61,7 @@ const PredictionsPage = () => {
             ) : status === "error" ? (
               <><WifiOff className="h-3.5 w-3.5 text-destructive" /> Dados offline</>
             ) : (
-              <><Wifi className="h-3.5 w-3.5 text-sport" /> {odds.length} partidas com odds disponíveis</>
+              <><Wifi className="h-3.5 w-3.5 text-sport" /> {filtered.length} de {odds.length} partidas com odds</>
             )}
           </p>
         </div>
@@ -33,6 +73,13 @@ const PredictionsPage = () => {
           Atualizar
         </button>
       </div>
+
+      <FilterBar
+        filters={filterDefs}
+        values={filters}
+        onChange={(k, v) => setFilters((p) => ({ ...p, [k]: v }))}
+        onClear={() => setFilters({ market: "all", favorite: "all" })}
+      />
 
       {isLoading && odds.length === 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -58,8 +105,12 @@ const PredictionsPage = () => {
         </div>
       )}
 
+      {!isLoading && odds.length > 0 && filtered.length === 0 && (
+        <p className="text-center text-sm text-muted-foreground py-8">Nenhuma partida corresponde aos filtros aplicados.</p>
+      )}
+
       <div className="space-y-4">
-        {odds.map((o) => {
+        {filtered.map((o) => {
           const probHome = oddsToProb(o.homeOdds);
           const probDraw = oddsToProb(o.drawOdds);
           const probAway = oddsToProb(o.awayOdds);
