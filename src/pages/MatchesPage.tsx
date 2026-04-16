@@ -113,14 +113,16 @@ const MatchesPage = () => {
     },
   ];
 
-  const applyFilters = (list: SofaMatch[]) => {
+  const applyFilters = <T extends { homeTeam: string; awayTeam: string; tournament: string; status: string; startTimestamp?: number }>(
+    list: T[]
+  ): T[] => {
     const q = search.toLowerCase();
     return list.filter((m) => {
       if (q && !(m.homeTeam.toLowerCase().includes(q) || m.awayTeam.toLowerCase().includes(q) || m.tournament.toLowerCase().includes(q))) return false;
       if (filters.status === "live" && !isLive(m.status)) return false;
       if (filters.status === "scheduled" && !isScheduled(m.status)) return false;
       if (filters.status === "finished" && !isFinished(m.status)) return false;
-      if (!inDateRange(m.startTimestamp, filters.date)) return false;
+      if (m.startTimestamp !== undefined && !inDateRange(m.startTimestamp, filters.date)) return false;
       return true;
     });
   };
