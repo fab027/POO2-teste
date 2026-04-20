@@ -237,9 +237,19 @@ serve(async (req) => {
       const matchesUrl = leagueUrl.replace(/\/$/, "") + "/matches";
       const todayIso = new Date().toISOString().slice(0, 10);
 
+      const strictRules = `CRITICAL RULES:
+- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid", "Manchester City").
+- NEVER invent, translate, abbreviate or use placeholders like "Team A", "Team B", "Home", "Away", "Time 1", "Equipe X", "TBD".
+- If you cannot clearly read both real team names from the page content, OMIT that match entirely from the output.
+- Return an empty matches array if no real matches can be read. Do NOT fabricate examples.`;
+
       const prompt = isLast
-        ? `Today is ${todayIso}. Extract the MOST RECENT FINISHED matches from this league. For each match: home team name, away team name, home score (final), away score (final), status "Finished", the EXACT match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-15T20:00:00"), and the EXACT round/rodada number shown next to the match (NOT the filter value, the actual match round). The date MUST be in the past (before ${todayIso}). Return up to 15 matches sorted newest first. Do NOT include future or not-started matches.`
-        : `Today is ${todayIso}. Extract the UPCOMING / SCHEDULED / NOT STARTED matches from this league. For each match: home team name, away team name, status "Scheduled", the EXACT scheduled match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-22T16:00:00"), and the EXACT round/rodada number shown next to the match (NOT the page's filter value, the actual round the match belongs to). The date MUST be in the future (today ${todayIso} or later). Return up to 15 matches sorted soonest first. Do NOT include finished or live matches. Do NOT guess — if you cannot read the round number, omit it.`;
+        ? `Today is ${todayIso}. Extract the MOST RECENT FINISHED matches from this league page.
+${strictRules}
+For each REAL match include: home team name, away team name, home score (final integer), away score (final integer), status "Finished", the EXACT match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-15T20:00:00"), and the EXACT round/rodada number shown next to that specific match. The date MUST be in the past (before ${todayIso}). Return up to 15 matches sorted newest first. Do NOT include future or not-started matches.`
+        : `Today is ${todayIso}. Extract the UPCOMING / SCHEDULED / NOT STARTED matches from this league page.
+${strictRules}
+For each REAL match include: home team name, away team name, status "Scheduled", the EXACT scheduled date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-22T16:00:00"), and the EXACT round/rodada number for that specific match. The date MUST be in the future (today ${todayIso} or later). Return up to 15 matches sorted soonest first. Do NOT include finished or live matches.`;
 
       const data = await scrapeExtract(matchesUrl, prompt, matchesSchema);
 
