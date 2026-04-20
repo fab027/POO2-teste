@@ -233,26 +233,39 @@ serve(async (req) => {
       if (!leagueUrl) throw new Error("leagueUrl required");
       const isLast = action === "matches_last";
 
-      // Map SofaScore league URL to a placardefutebol-style slug we can scrape reliably
+      // Map SofaScore league URL to a placardefutebol slug (page contains both past + upcoming matches)
       const leagueSlug = (() => {
         const u = leagueUrl.toLowerCase();
-        if (u.includes("brasileirao-serie-a") || u.includes("brazil/serie-a")) return "campeonato-brasileiro";
-        if (u.includes("premier-league")) return "campeonato-ingles";
-        if (u.includes("laliga") || u.includes("la-liga")) return "campeonato-espanhol";
-        if (u.includes("serie-a/23")) return "campeonato-italiano";
-        if (u.includes("bundesliga")) return "campeonato-alemao";
-        if (u.includes("ligue-1")) return "campeonato-frances";
+        if (u.includes("brasileirao-serie-a") || u.includes("brazil/serie-a")) return "brasileirao-serie-a";
+        if (u.includes("brasileirao-serie-b")) return "brasileirao-serie-b";
+        if (u.includes("premier-league")) return "premier-league";
+        if (u.includes("laliga") || u.includes("la-liga")) return "la-liga";
+        if (u.includes("bundesliga")) return "bundesliga";
+        if (u.includes("ligue-1")) return "ligue-1";
+        if (u.includes("italy/serie-a") || u.includes("/serie-a/23")) return "serie-a-italia";
         if (u.includes("libertadores")) return "libertadores";
         if (u.includes("sul-americana") || u.includes("sudamericana")) return "sul-americana";
         if (u.includes("champions-league")) return "champions-league";
-        if (u.includes("nba")) return "nba";
-        return "campeonato-brasileiro";
+        if (u.includes("europa-league")) return "europa-league";
+        return "brasileirao-serie-a";
       })();
 
-      const sourceUrl = isLast
-        ? `https://www.placardefutebol.com.br/campeonato/${leagueSlug}/resultados`
-        : `https://www.placardefutebol.com.br/campeonato/${leagueSlug}/proximos-jogos`;
+      const sourceUrl = `https://www.placardefutebol.com.br/${leagueSlug}`;
       const todayIso = new Date().toISOString().slice(0, 10);
+
+      const strictRules = `CRITICAL RULES:
+- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid").
+- NEVER invent or use placeholders like "Team A", "Time 1", "Equipe X", "Home", "Away", "TBD".
+- If you cannot read both real team names from the page text, OMIT that match entirely.
+- Return an EMPTY matches array if you cannot find real matches. Do NOT fabricate examples.`;
+
+      const prompt = isLast
+        ? `Today is ${todayIso}. This is a Placar de Futebol league page that contains a section "Últimos jogos" with FINISHED matches showing scores like "2 - 0", and a section "Próximos jogos" with future matches showing only kickoff times like "16:00".
+${strictRules}
+Extract ONLY the matches from the "Últimos jogos" / finished section (the ones with actual scores). For each: homeTeam, awayTeam, homeScore (final integer), awayScore (final integer), status "Finished", date as ISO 8601 with year (e.g. "2026-04-19T20:00:00") — combine the date label like "ontem" or "Domingo, 19/04" with the year ${todayIso.slice(0, 4)}, and round/rodada number if shown. Return up to 15, newest first.`
+        : `Today is ${todayIso}. This is a Placar de Futebol league page that contains a section "Últimos jogos" with FINISHED matches (with scores like "2 - 0") and a section "Próximos jogos" with UPCOMING matches (showing only kickoff times like "16:00", NO scores yet).
+${strictRules}
+Extract ONLY the matches from the "Próximos jogos" / upcoming section (the ones WITHOUT scores, only times). For each: homeTeam, awayTeam, status "Scheduled", date as ISO 8601 with year (e.g. "2026-04-26T16:00:00") — combine the date label like "Sábado, 25/04" or "Domingo, 26/04" with the kickoff time and year ${todayIso.slice(0, 4)}, and round/rodada number if shown. Do NOT include matches with scores. Return up to 15, soonest first.`;
 
       const strictRules = `CRITICAL RULES:
 - Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid").
