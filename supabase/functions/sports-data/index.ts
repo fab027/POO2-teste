@@ -272,8 +272,13 @@ For each REAL match include: home team name, away team name, status "Scheduled",
         };
       });
 
-      // Strict temporal filtering to avoid stale/mislabeled data
+      // Reject placeholder/generic team names that the LLM sometimes invents
+      const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]?$|^(tbd|n\/a|unknown|---?)$/i;
+      const isRealName = (s: string) => !!s && s.trim().length >= 2 && !placeholderRe.test(s.trim());
+
+      // Strict temporal filtering + real-name filtering to avoid stale/mislabeled data
       const filtered = rawMatches.filter((m) => {
+        if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
         if (!m.startTimestamp) return false;
         if (isLast) return m.startTimestamp < nowSec;
         return m.startTimestamp >= nowSec - 3600; // allow 1h slack for just-started
