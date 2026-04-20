@@ -64,6 +64,61 @@ const scrapeExtract = async (
   }
 };
 
+// Scrape markdown via Firecrawl, then ask Lovable AI to structure it.
+// Used when Firecrawl's native "extract" returns empty silently.
+const scrapeMarkdownThenAI = async (
+  url: string,
+  prompt: string,
+  schema: Record<string, unknown>
+): Promise<any> => {
+  const fcKey = requireFirecrawlKey();
+  const aiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!aiKey) throw new Error("LOVABLE_API_KEY not configured");
+
+  console.log(`Scraping markdown: ${url}`);
+  const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${fcKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, waitFor: 2000, timeout: 45000 }),
+  });
+  if (!fcRes.ok) throw new Error(`Firecrawl ${fcRes.status}`);
+  const fcData = await fcRes.json();
+  const markdown: string = fcData.data?.markdown || "";
+  console.log(`Markdown length: ${markdown.length}`);
+  if (!markdown || markdown.length < 200) return { matches: [] };
+
+  // Truncate to keep prompt manageable
+  const trimmed = markdown.slice(0, 18000);
+
+  const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${aiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: "You extract structured data from web page content. Output ONLY valid JSON matching the requested schema. Use ONLY information present in the provided content — never invent placeholders." },
+        { role: "user", content: `${prompt}\n\nSchema (JSON):\n${JSON.stringify(schema)}\n\nPage content (markdown):\n${trimmed}` },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!aiRes.ok) {
+    const errText = await aiRes.text();
+    console.error(`Lovable AI ${aiRes.status}:`, errText);
+    throw new Error(`AI error: ${aiRes.status}`);
+  }
+  const aiData = await aiRes.json();
+  const content = aiData.choices?.[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(content);
+    console.log(`AI extracted keys: ${Object.keys(parsed).join(",")}, matches: ${parsed.matches?.length ?? 0}`);
+    return parsed;
+  } catch {
+    console.error("Failed to parse AI JSON:", content.slice(0, 500));
+    return { matches: [] };
+  }
+};
+
 const firecrawlSearch = async (query: string, limit = 5): Promise<any[]> => {
   const key = requireFirecrawlKey();
 
