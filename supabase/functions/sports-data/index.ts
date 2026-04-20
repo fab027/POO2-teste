@@ -319,7 +319,7 @@ serve(async (req) => {
 ${strictRules}
 Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awayTeam, homeScore (integer if finished, null if upcoming), awayScore (integer if finished, null if upcoming), status ("Finished" if it has a score, "Scheduled" otherwise), date as ISO 8601 with year (e.g. "2026-04-19T20:00:00") — combine the date label ("ontem"/"hoje"/"Sábado, 25/04"/"19/04") with the kickoff time and year ${todayIso.slice(0, 4)}, and round/rodada number if shown.`;
 
-      const data = await scrapeExtract(sourceUrl, prompt, matchesSchema);
+      const data = await scrapeMarkdownThenAI(sourceUrl, prompt, matchesSchema);
 
       const nowSec = Math.floor(Date.now() / 1000);
       const rawMatches = (data?.matches || []).map((m: any, i: number) => {
