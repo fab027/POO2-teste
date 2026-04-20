@@ -233,25 +233,42 @@ serve(async (req) => {
       if (!leagueUrl) throw new Error("leagueUrl required");
       const isLast = action === "matches_last";
 
-      // Use the dedicated matches tab on SofaScore (more reliable dates + round numbers)
-      const matchesUrl = leagueUrl.replace(/\/$/, "") + "/matches";
+      // Map SofaScore league URL to a placardefutebol-style slug we can scrape reliably
+      const leagueSlug = (() => {
+        const u = leagueUrl.toLowerCase();
+        if (u.includes("brasileirao-serie-a") || u.includes("brazil/serie-a")) return "campeonato-brasileiro";
+        if (u.includes("premier-league")) return "campeonato-ingles";
+        if (u.includes("laliga") || u.includes("la-liga")) return "campeonato-espanhol";
+        if (u.includes("serie-a/23")) return "campeonato-italiano";
+        if (u.includes("bundesliga")) return "campeonato-alemao";
+        if (u.includes("ligue-1")) return "campeonato-frances";
+        if (u.includes("libertadores")) return "libertadores";
+        if (u.includes("sul-americana") || u.includes("sudamericana")) return "sul-americana";
+        if (u.includes("champions-league")) return "champions-league";
+        if (u.includes("nba")) return "nba";
+        return "campeonato-brasileiro";
+      })();
+
+      const sourceUrl = isLast
+        ? `https://www.placardefutebol.com.br/campeonato/${leagueSlug}/resultados`
+        : `https://www.placardefutebol.com.br/campeonato/${leagueSlug}/proximos-jogos`;
       const todayIso = new Date().toISOString().slice(0, 10);
 
       const strictRules = `CRITICAL RULES:
-- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid", "Manchester City").
-- NEVER invent, translate, abbreviate or use placeholders like "Team A", "Team B", "Home", "Away", "Time 1", "Equipe X", "TBD".
-- If you cannot clearly read both real team names from the page content, OMIT that match entirely from the output.
-- Return an empty matches array if no real matches can be read. Do NOT fabricate examples.`;
+- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid").
+- NEVER invent or use placeholders like "Team A", "Time 1", "Equipe X", "Home", "Away", "TBD".
+- If you cannot read both real team names from the page text, OMIT that match entirely.
+- Return an EMPTY matches array if you cannot find real matches. Do NOT fabricate examples.`;
 
       const prompt = isLast
-        ? `Today is ${todayIso}. Extract the MOST RECENT FINISHED matches from this league page.
+        ? `Today is ${todayIso}. From this Placar de Futebol "resultados" page, extract the most recent FINISHED matches.
 ${strictRules}
-For each REAL match include: home team name, away team name, home score (final integer), away score (final integer), status "Finished", the EXACT match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-15T20:00:00"), and the EXACT round/rodada number shown next to that specific match. The date MUST be in the past (before ${todayIso}). Return up to 15 matches sorted newest first. Do NOT include future or not-started matches.`
-        : `Today is ${todayIso}. Extract the UPCOMING / SCHEDULED / NOT STARTED matches from this league page.
+For each REAL match include: home team name (homeTeam), away team name (awayTeam), final home score integer (homeScore), final away score integer (awayScore), status "Finished", the match date and kickoff time as ISO 8601 string WITH YEAR (e.g. "2026-04-15T20:00:00"), and the round/rodada number for that match if shown. The date MUST be in the past. Return up to 15 matches sorted newest first.`
+        : `Today is ${todayIso}. From this Placar de Futebol "próximos jogos" page, extract the UPCOMING / SCHEDULED matches.
 ${strictRules}
-For each REAL match include: home team name, away team name, status "Scheduled", the EXACT scheduled date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-22T16:00:00"), and the EXACT round/rodada number for that specific match. The date MUST be in the future (today ${todayIso} or later). Return up to 15 matches sorted soonest first. Do NOT include finished or live matches.`;
+For each REAL match include: home team name (homeTeam), away team name (awayTeam), status "Scheduled", scheduled date and kickoff time as ISO 8601 WITH YEAR (e.g. "2026-04-22T16:00:00"), and the round/rodada number if shown. The date MUST be today or in the future. Return up to 15 matches sorted soonest first.`;
 
-      const data = await scrapeExtract(matchesUrl, prompt, matchesSchema);
+      const data = await scrapeExtract(sourceUrl, prompt, matchesSchema);
 
       const nowSec = Math.floor(Date.now() / 1000);
       const rawMatches = (data?.matches || []).map((m: any, i: number) => {
@@ -262,8 +279,8 @@ For each REAL match include: home team name, away team name, status "Scheduled",
         }
         return {
           id: (isLast ? 1000 : 5000) + i,
-          homeTeam: m.homeTeam || "Unknown",
-          awayTeam: m.awayTeam || "Unknown",
+          homeTeam: (m.homeTeam || "").trim(),
+          awayTeam: (m.awayTeam || "").trim(),
           homeScore: isLast ? (m.homeScore ?? null) : null,
           awayScore: isLast ? (m.awayScore ?? null) : null,
           status: m.status || (isLast ? "Finished" : "Scheduled"),
@@ -272,25 +289,30 @@ For each REAL match include: home team name, away team name, status "Scheduled",
         };
       });
 
-      // Reject placeholder/generic team names that the LLM sometimes invents
-      const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]?$|^(tbd|n\/a|unknown|---?)$/i;
+      // Reject placeholder/generic team names
+      const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]{0,2}$|^(tbd|n\/?a|unknown|---?|\?+)$/i;
       const isRealName = (s: string) => !!s && s.trim().length >= 2 && !placeholderRe.test(s.trim());
 
-      // Strict temporal filtering + real-name filtering to avoid stale/mislabeled data
-      const filtered = rawMatches.filter((m) => {
-        if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
-        if (!m.startTimestamp) return false;
-        if (isLast) return m.startTimestamp < nowSec;
-        return m.startTimestamp >= nowSec - 3600; // allow 1h slack for just-started
-      });
-
-      // Sort: last matches desc (newest first), next matches asc (soonest first)
-      filtered.sort((a, b) =>
-        isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
+      // Detect "sequence of placeholders" as a hard signal the LLM hallucinated
+      const allLetters = rawMatches.every((m) =>
+        /^team\s*[a-z]$/i.test(m.homeTeam) || /^team\s*[a-z]$/i.test(m.awayTeam)
       );
-
-      console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter`);
-      result = filtered;
+      if (allLetters && rawMatches.length > 0) {
+        console.warn(`${action}: detected hallucinated Team A/B/C — discarding all`);
+        result = [];
+      } else {
+        const filtered = rawMatches.filter((m) => {
+          if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
+          if (!m.startTimestamp) return false;
+          if (isLast) return m.startTimestamp < nowSec;
+          return m.startTimestamp >= nowSec - 3600;
+        });
+        filtered.sort((a, b) =>
+          isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
+        );
+        console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter (source: ${sourceUrl})`);
+        result = filtered;
+      }
     } else if (action === "live") {
       try {
         const data = await scrapeExtract(
