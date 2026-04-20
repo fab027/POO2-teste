@@ -64,8 +64,8 @@ export function useMatches(leagueUrl: string) {
     setStatus("loading");
     try {
       const [last, next] = await Promise.all([
-        cached(`last_v2_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
-        cached(`next_v2_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
+        cached(`last_v3_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
+        cached(`next_v3_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
       ]);
       const nowSec = Math.floor(Date.now() / 1000);
       // Defensive client-side sanity filter (case an old cache slipped through)
