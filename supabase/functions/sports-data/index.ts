@@ -259,27 +259,10 @@ serve(async (req) => {
 - If you cannot read both real team names from the page text, OMIT that match entirely.
 - Return an EMPTY matches array if you cannot find real matches. Do NOT fabricate examples.`;
 
-      const prompt = isLast
-        ? `Today is ${todayIso}. This is a Placar de Futebol league page that contains a section "Últimos jogos" with FINISHED matches showing scores like "2 - 0", and a section "Próximos jogos" with future matches showing only kickoff times like "16:00".
+      // Extract ALL matches on the page (past + upcoming) — server-side splits by timestamp
+      const prompt = `Today is ${todayIso}. This Placar de Futebol page lists league matches in two sections: "Últimos jogos" (finished, with scores like "2 - 0") and "Próximos jogos" (upcoming, with kickoff times like "16:00" and no score).
 ${strictRules}
-Extract ONLY the matches from the "Últimos jogos" / finished section (the ones with actual scores). For each: homeTeam, awayTeam, homeScore (final integer), awayScore (final integer), status "Finished", date as ISO 8601 with year (e.g. "2026-04-19T20:00:00") — combine the date label like "ontem" or "Domingo, 19/04" with the year ${todayIso.slice(0, 4)}, and round/rodada number if shown. Return up to 15, newest first.`
-        : `Today is ${todayIso}. This is a Placar de Futebol league page that contains a section "Últimos jogos" with FINISHED matches (with scores like "2 - 0") and a section "Próximos jogos" with UPCOMING matches (showing only kickoff times like "16:00", NO scores yet).
-${strictRules}
-Extract ONLY the matches from the "Próximos jogos" / upcoming section (the ones WITHOUT scores, only times). For each: homeTeam, awayTeam, status "Scheduled", date as ISO 8601 with year (e.g. "2026-04-26T16:00:00") — combine the date label like "Sábado, 25/04" or "Domingo, 26/04" with the kickoff time and year ${todayIso.slice(0, 4)}, and round/rodada number if shown. Do NOT include matches with scores. Return up to 15, soonest first.`;
-
-      const strictRules = `CRITICAL RULES:
-- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid").
-- NEVER invent or use placeholders like "Team A", "Time 1", "Equipe X", "Home", "Away", "TBD".
-- If you cannot read both real team names from the page text, OMIT that match entirely.
-- Return an EMPTY matches array if you cannot find real matches. Do NOT fabricate examples.`;
-
-      const prompt = isLast
-        ? `Today is ${todayIso}. From this Placar de Futebol "resultados" page, extract the most recent FINISHED matches.
-${strictRules}
-For each REAL match include: home team name (homeTeam), away team name (awayTeam), final home score integer (homeScore), final away score integer (awayScore), status "Finished", the match date and kickoff time as ISO 8601 string WITH YEAR (e.g. "2026-04-15T20:00:00"), and the round/rodada number for that match if shown. The date MUST be in the past. Return up to 15 matches sorted newest first.`
-        : `Today is ${todayIso}. From this Placar de Futebol "próximos jogos" page, extract the UPCOMING / SCHEDULED matches.
-${strictRules}
-For each REAL match include: home team name (homeTeam), away team name (awayTeam), status "Scheduled", scheduled date and kickoff time as ISO 8601 WITH YEAR (e.g. "2026-04-22T16:00:00"), and the round/rodada number if shown. The date MUST be today or in the future. Return up to 15 matches sorted soonest first.`;
+Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awayTeam, homeScore (integer if finished, null if upcoming), awayScore (integer if finished, null if upcoming), status ("Finished" if it has a score, "Scheduled" otherwise), date as ISO 8601 with year (e.g. "2026-04-19T20:00:00") — combine the date label ("ontem"/"hoje"/"Sábado, 25/04"/"19/04") with the kickoff time and year ${todayIso.slice(0, 4)}, and round/rodada number if shown.`;
 
       const data = await scrapeExtract(sourceUrl, prompt, matchesSchema);
 
