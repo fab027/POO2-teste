@@ -233,24 +233,49 @@ serve(async (req) => {
       if (!leagueUrl) throw new Error("leagueUrl required");
       const isLast = action === "matches_last";
 
-      const data = await scrapeExtract(
-        leagueUrl,
-        `Extract ${isLast ? "the most recent completed/finished" : "the upcoming/scheduled"} matches. For each match: home team name, away team name, ${isLast ? "home score, away score," : ""} status (Finished/Scheduled), date and time as ISO string, round number.`,
-        matchesSchema
+      // Use the dedicated matches tab on SofaScore (more reliable dates + round numbers)
+      const matchesUrl = leagueUrl.replace(/\/$/, "") + "/matches";
+      const todayIso = new Date().toISOString().slice(0, 10);
+
+      const prompt = isLast
+        ? `Today is ${todayIso}. Extract the MOST RECENT FINISHED matches from this league. For each match: home team name, away team name, home score (final), away score (final), status "Finished", the EXACT match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-15T20:00:00"), and the EXACT round/rodada number shown next to the match (NOT the filter value, the actual match round). The date MUST be in the past (before ${todayIso}). Return up to 15 matches sorted newest first. Do NOT include future or not-started matches.`
+        : `Today is ${todayIso}. Extract the UPCOMING / SCHEDULED / NOT STARTED matches from this league. For each match: home team name, away team name, status "Scheduled", the EXACT scheduled match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-22T16:00:00"), and the EXACT round/rodada number shown next to the match (NOT the page's filter value, the actual round the match belongs to). The date MUST be in the future (today ${todayIso} or later). Return up to 15 matches sorted soonest first. Do NOT include finished or live matches. Do NOT guess — if you cannot read the round number, omit it.`;
+
+      const data = await scrapeExtract(matchesUrl, prompt, matchesSchema);
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const rawMatches = (data?.matches || []).map((m: any, i: number) => {
+        let ts = 0;
+        if (m.date) {
+          const parsed = new Date(m.date).getTime();
+          if (!isNaN(parsed)) ts = Math.floor(parsed / 1000);
+        }
+        return {
+          id: (isLast ? 1000 : 5000) + i,
+          homeTeam: m.homeTeam || "Unknown",
+          awayTeam: m.awayTeam || "Unknown",
+          homeScore: isLast ? (m.homeScore ?? null) : null,
+          awayScore: isLast ? (m.awayScore ?? null) : null,
+          status: m.status || (isLast ? "Finished" : "Scheduled"),
+          startTimestamp: ts,
+          roundInfo: typeof m.round === "number" && m.round > 0 ? m.round : null,
+        };
+      });
+
+      // Strict temporal filtering to avoid stale/mislabeled data
+      const filtered = rawMatches.filter((m) => {
+        if (!m.startTimestamp) return false;
+        if (isLast) return m.startTimestamp < nowSec;
+        return m.startTimestamp >= nowSec - 3600; // allow 1h slack for just-started
+      });
+
+      // Sort: last matches desc (newest first), next matches asc (soonest first)
+      filtered.sort((a, b) =>
+        isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
       );
 
-      result = (data?.matches || []).map((m: any, i: number) => ({
-        id: (isLast ? 1000 : 5000) + i,
-        homeTeam: m.homeTeam || "Unknown",
-        awayTeam: m.awayTeam || "Unknown",
-        homeScore: isLast ? (m.homeScore ?? null) : null,
-        awayScore: isLast ? (m.awayScore ?? null) : null,
-        status: m.status || (isLast ? "Finished" : "Scheduled"),
-        startTimestamp: m.date
-          ? Math.floor(new Date(m.date).getTime() / 1000)
-          : Math.floor(Date.now() / 1000),
-        roundInfo: m.round || null,
-      }));
+      console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter`);
+      result = filtered;
     } else if (action === "live") {
       try {
         const data = await scrapeExtract(
