@@ -64,11 +64,19 @@ export function useMatches(leagueUrl: string) {
     setStatus("loading");
     try {
       const [last, next] = await Promise.all([
-        cached(`last_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
-        cached(`next_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
+        cached(`last_v2_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
+        cached(`next_v2_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
       ]);
-      setLastMatches(last);
-      setNextMatches(next);
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Defensive client-side sanity filter (case an old cache slipped through)
+      const cleanLast = last
+        .filter((m) => m.startTimestamp && m.startTimestamp < nowSec)
+        .sort((a, b) => b.startTimestamp - a.startTimestamp);
+      const cleanNext = next
+        .filter((m) => m.startTimestamp && m.startTimestamp >= nowSec - 3600)
+        .sort((a, b) => a.startTimestamp - b.startTimestamp);
+      setLastMatches(cleanLast);
+      setNextMatches(cleanNext);
       setStatus("success");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar partidas");
