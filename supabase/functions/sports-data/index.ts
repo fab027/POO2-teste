@@ -64,6 +64,61 @@ const scrapeExtract = async (
   }
 };
 
+// Scrape markdown via Firecrawl, then ask Lovable AI to structure it.
+// Used when Firecrawl's native "extract" returns empty silently.
+const scrapeMarkdownThenAI = async (
+  url: string,
+  prompt: string,
+  schema: Record<string, unknown>
+): Promise<any> => {
+  const fcKey = requireFirecrawlKey();
+  const aiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!aiKey) throw new Error("LOVABLE_API_KEY not configured");
+
+  console.log(`Scraping markdown: ${url}`);
+  const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${fcKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, waitFor: 2000, timeout: 45000 }),
+  });
+  if (!fcRes.ok) throw new Error(`Firecrawl ${fcRes.status}`);
+  const fcData = await fcRes.json();
+  const markdown: string = fcData.data?.markdown || "";
+  console.log(`Markdown length: ${markdown.length}`);
+  if (!markdown || markdown.length < 200) return { matches: [] };
+
+  // Truncate to keep prompt manageable
+  const trimmed = markdown.slice(0, 18000);
+
+  const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${aiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: "You extract structured data from web page content. Output ONLY valid JSON matching the requested schema. Use ONLY information present in the provided content — never invent placeholders." },
+        { role: "user", content: `${prompt}\n\nSchema (JSON):\n${JSON.stringify(schema)}\n\nPage content (markdown):\n${trimmed}` },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!aiRes.ok) {
+    const errText = await aiRes.text();
+    console.error(`Lovable AI ${aiRes.status}:`, errText);
+    throw new Error(`AI error: ${aiRes.status}`);
+  }
+  const aiData = await aiRes.json();
+  const content = aiData.choices?.[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(content);
+    console.log(`AI extracted keys: ${Object.keys(parsed).join(",")}, matches: ${parsed.matches?.length ?? 0}`);
+    return parsed;
+  } catch {
+    console.error("Failed to parse AI JSON:", content.slice(0, 500));
+    return { matches: [] };
+  }
+};
+
 const firecrawlSearch = async (query: string, limit = 5): Promise<any[]> => {
   const key = requireFirecrawlKey();
 
@@ -233,25 +288,38 @@ serve(async (req) => {
       if (!leagueUrl) throw new Error("leagueUrl required");
       const isLast = action === "matches_last";
 
-      // Use the dedicated matches tab on SofaScore (more reliable dates + round numbers)
-      const matchesUrl = leagueUrl.replace(/\/$/, "") + "/matches";
+      // Map SofaScore league URL to a placardefutebol slug (page contains both past + upcoming matches)
+      const leagueSlug = (() => {
+        const u = leagueUrl.toLowerCase();
+        if (u.includes("brasileirao-serie-a") || u.includes("brazil/serie-a")) return "brasileirao-serie-a";
+        if (u.includes("brasileirao-serie-b")) return "brasileirao-serie-b";
+        if (u.includes("premier-league")) return "premier-league";
+        if (u.includes("laliga") || u.includes("la-liga")) return "la-liga";
+        if (u.includes("bundesliga")) return "bundesliga";
+        if (u.includes("ligue-1")) return "ligue-1";
+        if (u.includes("italy/serie-a") || u.includes("/serie-a/23")) return "serie-a-italia";
+        if (u.includes("libertadores")) return "libertadores";
+        if (u.includes("sul-americana") || u.includes("sudamericana")) return "sul-americana";
+        if (u.includes("champions-league")) return "champions-league";
+        if (u.includes("europa-league")) return "europa-league";
+        return "brasileirao-serie-a";
+      })();
+
+      const sourceUrl = `https://www.placardefutebol.com.br/${leagueSlug}`;
       const todayIso = new Date().toISOString().slice(0, 10);
 
       const strictRules = `CRITICAL RULES:
-- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid", "Manchester City").
-- NEVER invent, translate, abbreviate or use placeholders like "Team A", "Team B", "Home", "Away", "Time 1", "Equipe X", "TBD".
-- If you cannot clearly read both real team names from the page content, OMIT that match entirely from the output.
-- Return an empty matches array if no real matches can be read. Do NOT fabricate examples.`;
+- Use ONLY the REAL club names exactly as they appear on the page (e.g. "Flamengo", "Palmeiras", "Real Madrid").
+- NEVER invent or use placeholders like "Team A", "Time 1", "Equipe X", "Home", "Away", "TBD".
+- If you cannot read both real team names from the page text, OMIT that match entirely.
+- Return an EMPTY matches array if you cannot find real matches. Do NOT fabricate examples.`;
 
-      const prompt = isLast
-        ? `Today is ${todayIso}. Extract the MOST RECENT FINISHED matches from this league page.
+      // Extract ALL matches on the page (past + upcoming) — server-side splits by timestamp
+      const prompt = `Today is ${todayIso}. This Placar de Futebol page lists league matches in two sections: "Últimos jogos" (finished, with scores like "2 - 0") and "Próximos jogos" (upcoming, with kickoff times like "16:00" and no score).
 ${strictRules}
-For each REAL match include: home team name, away team name, home score (final integer), away score (final integer), status "Finished", the EXACT match date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-15T20:00:00"), and the EXACT round/rodada number shown next to that specific match. The date MUST be in the past (before ${todayIso}). Return up to 15 matches sorted newest first. Do NOT include future or not-started matches.`
-        : `Today is ${todayIso}. Extract the UPCOMING / SCHEDULED / NOT STARTED matches from this league page.
-${strictRules}
-For each REAL match include: home team name, away team name, status "Scheduled", the EXACT scheduled date and kickoff time as ISO 8601 string INCLUDING THE YEAR (e.g. "2026-04-22T16:00:00"), and the EXACT round/rodada number for that specific match. The date MUST be in the future (today ${todayIso} or later). Return up to 15 matches sorted soonest first. Do NOT include finished or live matches.`;
+Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awayTeam, homeScore (integer if finished, null if upcoming), awayScore (integer if finished, null if upcoming), status ("Finished" if it has a score, "Scheduled" otherwise), date as ISO 8601 with year (e.g. "2026-04-19T20:00:00") — combine the date label ("ontem"/"hoje"/"Sábado, 25/04"/"19/04") with the kickoff time and year ${todayIso.slice(0, 4)}, and round/rodada number if shown.`;
 
-      const data = await scrapeExtract(matchesUrl, prompt, matchesSchema);
+      const data = await scrapeMarkdownThenAI(sourceUrl, prompt, matchesSchema);
 
       const nowSec = Math.floor(Date.now() / 1000);
       const rawMatches = (data?.matches || []).map((m: any, i: number) => {
@@ -262,8 +330,8 @@ For each REAL match include: home team name, away team name, status "Scheduled",
         }
         return {
           id: (isLast ? 1000 : 5000) + i,
-          homeTeam: m.homeTeam || "Unknown",
-          awayTeam: m.awayTeam || "Unknown",
+          homeTeam: (m.homeTeam || "").trim(),
+          awayTeam: (m.awayTeam || "").trim(),
           homeScore: isLast ? (m.homeScore ?? null) : null,
           awayScore: isLast ? (m.awayScore ?? null) : null,
           status: m.status || (isLast ? "Finished" : "Scheduled"),
@@ -272,25 +340,30 @@ For each REAL match include: home team name, away team name, status "Scheduled",
         };
       });
 
-      // Reject placeholder/generic team names that the LLM sometimes invents
-      const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]?$|^(tbd|n\/a|unknown|---?)$/i;
+      // Reject placeholder/generic team names
+      const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]{0,2}$|^(tbd|n\/?a|unknown|---?|\?+)$/i;
       const isRealName = (s: string) => !!s && s.trim().length >= 2 && !placeholderRe.test(s.trim());
 
-      // Strict temporal filtering + real-name filtering to avoid stale/mislabeled data
-      const filtered = rawMatches.filter((m) => {
-        if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
-        if (!m.startTimestamp) return false;
-        if (isLast) return m.startTimestamp < nowSec;
-        return m.startTimestamp >= nowSec - 3600; // allow 1h slack for just-started
-      });
-
-      // Sort: last matches desc (newest first), next matches asc (soonest first)
-      filtered.sort((a, b) =>
-        isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
+      // Detect "sequence of placeholders" as a hard signal the LLM hallucinated
+      const allLetters = rawMatches.every((m) =>
+        /^team\s*[a-z]$/i.test(m.homeTeam) || /^team\s*[a-z]$/i.test(m.awayTeam)
       );
-
-      console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter`);
-      result = filtered;
+      if (allLetters && rawMatches.length > 0) {
+        console.warn(`${action}: detected hallucinated Team A/B/C — discarding all`);
+        result = [];
+      } else {
+        const filtered = rawMatches.filter((m) => {
+          if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
+          if (!m.startTimestamp) return false;
+          if (isLast) return m.startTimestamp < nowSec;
+          return m.startTimestamp >= nowSec - 3600;
+        });
+        filtered.sort((a, b) =>
+          isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
+        );
+        console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter (source: ${sourceUrl})`);
+        result = filtered;
+      }
     } else if (action === "live") {
       try {
         const data = await scrapeExtract(
