@@ -64,8 +64,8 @@ export function useMatches(leagueUrl: string) {
     setStatus("loading");
     try {
       const [last, next] = await Promise.all([
-        cached(`last_v5_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
-        cached(`next_v5_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
+        cached(`last_v6_${leagueUrl}`, () => sofaScoreService.getLastMatches(leagueUrl)),
+        cached(`next_v6_${leagueUrl}`, () => sofaScoreService.getNextMatches(leagueUrl)),
       ]);
       const nowSec = Math.floor(Date.now() / 1000);
       // Defensive client-side sanity filter (case an old cache slipped through)
@@ -104,10 +104,10 @@ export function useLiveMatches() {
   const fetchData = useCallback(async () => {
     setStatus("loading");
     try {
-      const key = "live_all";
+      const key = "live_v6_all";
       const hit = cache[key];
       let res: SofaLiveMatch[];
-      if (hit && Date.now() - hit.ts < 30_000) {
+      if (hit && Date.now() - hit.ts < 20_000) {
         res = hit.data as SofaLiveMatch[];
       } else {
         res = await sofaScoreService.getLiveMatches();
@@ -234,7 +234,7 @@ export function useTeamPlayers(teamName: string | null) {
       return;
     }
     setStatus("loading");
-    cached(`team_players_${teamName}`, () => sofaScoreService.getTeamPlayers(teamName))
+    cached(`team_players_v6_${teamName}`, () => sofaScoreService.getTeamPlayers(teamName))
       .then((res) => {
         setData(res);
         setStatus("success");
