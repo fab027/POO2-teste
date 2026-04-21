@@ -234,7 +234,7 @@ export function useTeamPlayers(teamName: string | null) {
       return;
     }
     setStatus("loading");
-    cached(`team_players_v6_${teamName}`, () => sofaScoreService.getTeamPlayers(teamName))
+    cached(`team_players_v7_${teamName}`, () => sofaScoreService.getTeamPlayers(teamName))
       .then((res) => {
         setData(res);
         setStatus("success");
