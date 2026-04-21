@@ -366,26 +366,51 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       }
     } else if (action === "live") {
       try {
-        const data = await scrapeExtract(
-          "https://www.placardefutebol.com.br/jogos-de-hoje",
-          `Look at ALL matches on this page. Extract ONLY the matches that are currently LIVE / "Ao Vivo" / in progress right now - they show a running minute like "32'" or "HT" or "2T" or have a pulsing live indicator. For each live match extract: home team name, away team name, current home score (number), current away score (number), current minute or period (e.g. "32'", "HT", "65'"), tournament/league name. If NO matches are currently live, return an empty matches array. Do NOT include finished or scheduled matches.`,
-          liveMatchesSchema,
-          1
+        const liveRules = `CRITICAL RULES:
+- ONLY include matches that are CURRENTLY in progress RIGHT NOW.
+- A live match MUST have a running minute indicator: "12'", "45+2'", "HT" (intervalo), "1T"/"2T", "3Q" (quarter), or an explicit "AO VIVO" badge next to the score.
+- IGNORE matches showing kickoff times like "16:00", "19:30" — those are SCHEDULED, NOT live.
+- IGNORE matches labeled "Encerrado", "Finalizado", "FT", "Final", "Após pênaltis" — those are FINISHED, NOT live.
+- Use REAL club names exactly as they appear (e.g. "Flamengo", "Real Madrid"). NEVER use "Team A", "Time 1", "Home", "Away".
+- If NOTHING is currently live, return { "matches": [] }. Do NOT fabricate examples.`;
+
+        const data = await scrapeMarkdownThenAI(
+          "https://www.placardefutebol.com.br/",
+          `${liveRules}\nFrom this Placar de Futebol homepage, look ONLY at the "AO VIVO" / "Ao vivo agora" / "Em andamento" section at the top. Extract every match in that section. For each: homeTeam, awayTeam, homeScore (current goals/points, integer), awayScore (current goals/points, integer), minute (current minute string like "32'" or "HT"), tournament (league/competition name), status (always "Live").`,
+          liveMatchesSchema
         );
-        const matches = data?.matches || [];
-        console.log(`Live matches found: ${matches.length}`);
-        result = matches
-          .filter((m: any) => m.homeTeam && m.awayTeam)
-          .map((m: any, i: number) => ({
-            id: 9000 + i,
-            homeTeam: m.homeTeam,
-            awayTeam: m.awayTeam,
-            homeScore: m.homeScore ?? 0,
-            awayScore: m.awayScore ?? 0,
-            status: "Live",
-            minute: m.minute || null,
-            tournament: m.tournament || "Desconhecido",
-          }));
+        const rawLive = data?.matches || [];
+        console.log(`Live raw: ${rawLive.length}`);
+
+        const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]{0,2}$|^(tbd|n\/?a|unknown|---?|\?+)$/i;
+        const finishedRe = /encerr|finaliz|finish|\bft\b|\bfinal\b|after\s*pen|p[oô]s.?p[eê]nal/i;
+        const scheduledTimeRe = /^\s*\d{1,2}:\d{2}\s*$/;
+        const liveMinuteRe = /\d+\s*'?|\bht\b|\bhalftime\b|intervalo|^\s*[12]t\s*$|\d+\s*[+]\s*\d+/i;
+
+        const filtered = rawLive.filter((m: any) => {
+          const home = (m.homeTeam || "").trim();
+          const away = (m.awayTeam || "").trim();
+          if (!home || !away) return false;
+          if (placeholderRe.test(home) || placeholderRe.test(away)) return false;
+          const minute = (m.minute || "").trim();
+          const status = (m.status || "").trim();
+          if (finishedRe.test(status) || finishedRe.test(minute)) return false;
+          if (scheduledTimeRe.test(minute)) return false;
+          if (!minute || !liveMinuteRe.test(minute)) return false;
+          return true;
+        });
+        console.log(`Live filtered: ${filtered.length}`);
+
+        result = filtered.map((m: any, i: number) => ({
+          id: 9000 + i,
+          homeTeam: m.homeTeam.trim(),
+          awayTeam: m.awayTeam.trim(),
+          homeScore: m.homeScore ?? 0,
+          awayScore: m.awayScore ?? 0,
+          status: "Live",
+          minute: m.minute || null,
+          tournament: m.tournament || "Desconhecido",
+        }));
       } catch (err) {
         console.error("Live scraping error:", err);
         result = [];
