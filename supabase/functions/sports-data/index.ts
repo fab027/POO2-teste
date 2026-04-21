@@ -445,29 +445,45 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       const { query } = body;
       if (!query) throw new Error("query required");
 
-      const results = await firecrawlSearch(
+      // Two-pass search: strict path filter first, broader fallback if empty
+      const queries = [
         `${query} footballer stats site:sofascore.com/player`,
-        8
-      );
-      result = results
-        .filter((r: any) => {
-          if (!r.url || !r.url.includes("sofascore.com/player")) return false;
-          const text = `${(r.title || "")} ${(r.description || "")}`.toLowerCase();
-          const excludePatterns = [
-            /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
-            /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
-            /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
-            /\bu\d{2}\b/i, /\bunder\s*\d+/i,
-          ];
-          return !excludePatterns.some((p) => p.test(text));
-        })
-        .slice(0, 5)
-        .map((r: any, i: number) => ({
-          id: i,
-          name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
-          url: r.url,
-          description: r.description || "",
-        }));
+        `${query} player site:sofascore.com`,
+      ];
+      const seen = new Set<string>();
+      const collected: any[] = [];
+      for (const q of queries) {
+        if (collected.length >= 5) break;
+        try {
+          const results = await firecrawlSearch(q, 8);
+          for (const r of results) {
+            if (!r.url) continue;
+            // Re-filter URLs server-side: must be a SofaScore player profile
+            if (!/sofascore\.com\/(?:[a-z-]+\/)?player\//i.test(r.url)) continue;
+            if (seen.has(r.url)) continue;
+            seen.add(r.url);
+            const text = `${(r.title || "")} ${(r.description || "")}`.toLowerCase();
+            const excludePatterns = [
+              /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
+              /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
+              /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
+              /\bu\d{2}\b/i, /\bunder\s*\d+/i,
+            ];
+            if (excludePatterns.some((p) => p.test(text))) continue;
+            collected.push(r);
+            if (collected.length >= 5) break;
+          }
+        } catch (err) {
+          console.error(`player_search "${q}" failed:`, err);
+        }
+      }
+      console.log(`player_search "${query}": ${collected.length} hits`);
+      result = collected.slice(0, 5).map((r: any, i: number) => ({
+        id: i,
+        name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
+        url: r.url,
+        description: r.description || "",
+      }));
     } else if (action === "player_stats") {
       const { playerUrl } = body;
       if (!playerUrl) throw new Error("playerUrl required");
