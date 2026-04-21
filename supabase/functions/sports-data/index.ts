@@ -242,6 +242,7 @@ const squadSchema = {
           shirtNumber: { type: "number" },
           nationality: { type: "string" },
           age: { type: "number" },
+          url: { type: "string" },
         },
       },
     },
