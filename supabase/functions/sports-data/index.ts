@@ -242,6 +242,7 @@ const squadSchema = {
           shirtNumber: { type: "number" },
           nationality: { type: "string" },
           age: { type: "number" },
+          url: { type: "string" },
         },
       },
     },
@@ -366,26 +367,51 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       }
     } else if (action === "live") {
       try {
-        const data = await scrapeExtract(
-          "https://www.placardefutebol.com.br/jogos-de-hoje",
-          `Look at ALL matches on this page. Extract ONLY the matches that are currently LIVE / "Ao Vivo" / in progress right now - they show a running minute like "32'" or "HT" or "2T" or have a pulsing live indicator. For each live match extract: home team name, away team name, current home score (number), current away score (number), current minute or period (e.g. "32'", "HT", "65'"), tournament/league name. If NO matches are currently live, return an empty matches array. Do NOT include finished or scheduled matches.`,
-          liveMatchesSchema,
-          1
+        const liveRules = `CRITICAL RULES:
+- ONLY include matches that are CURRENTLY in progress RIGHT NOW.
+- A live match MUST have a running minute indicator: "12'", "45+2'", "HT" (intervalo), "1T"/"2T", "3Q" (quarter), or an explicit "AO VIVO" badge next to the score.
+- IGNORE matches showing kickoff times like "16:00", "19:30" — those are SCHEDULED, NOT live.
+- IGNORE matches labeled "Encerrado", "Finalizado", "FT", "Final", "Após pênaltis" — those are FINISHED, NOT live.
+- Use REAL club names exactly as they appear (e.g. "Flamengo", "Real Madrid"). NEVER use "Team A", "Time 1", "Home", "Away".
+- If NOTHING is currently live, return { "matches": [] }. Do NOT fabricate examples.`;
+
+        const data = await scrapeMarkdownThenAI(
+          "https://www.placardefutebol.com.br/",
+          `${liveRules}\nFrom this Placar de Futebol homepage, look ONLY at the "AO VIVO" / "Ao vivo agora" / "Em andamento" section at the top. Extract every match in that section. For each: homeTeam, awayTeam, homeScore (current goals/points, integer), awayScore (current goals/points, integer), minute (current minute string like "32'" or "HT"), tournament (league/competition name), status (always "Live").`,
+          liveMatchesSchema
         );
-        const matches = data?.matches || [];
-        console.log(`Live matches found: ${matches.length}`);
-        result = matches
-          .filter((m: any) => m.homeTeam && m.awayTeam)
-          .map((m: any, i: number) => ({
-            id: 9000 + i,
-            homeTeam: m.homeTeam,
-            awayTeam: m.awayTeam,
-            homeScore: m.homeScore ?? 0,
-            awayScore: m.awayScore ?? 0,
-            status: "Live",
-            minute: m.minute || null,
-            tournament: m.tournament || "Desconhecido",
-          }));
+        const rawLive = data?.matches || [];
+        console.log(`Live raw: ${rawLive.length}`);
+
+        const placeholderRe = /^(team|equipe|time|home|away|casa|fora)\s*[a-z0-9]{0,2}$|^(tbd|n\/?a|unknown|---?|\?+)$/i;
+        const finishedRe = /encerr|finaliz|finish|\bft\b|\bfinal\b|after\s*pen|p[oô]s.?p[eê]nal/i;
+        const scheduledTimeRe = /^\s*\d{1,2}:\d{2}\s*$/;
+        const liveMinuteRe = /\d+\s*'?|\bht\b|\bhalftime\b|intervalo|^\s*[12]t\s*$|\d+\s*[+]\s*\d+/i;
+
+        const filtered = rawLive.filter((m: any) => {
+          const home = (m.homeTeam || "").trim();
+          const away = (m.awayTeam || "").trim();
+          if (!home || !away) return false;
+          if (placeholderRe.test(home) || placeholderRe.test(away)) return false;
+          const minute = (m.minute || "").trim();
+          const status = (m.status || "").trim();
+          if (finishedRe.test(status) || finishedRe.test(minute)) return false;
+          if (scheduledTimeRe.test(minute)) return false;
+          if (!minute || !liveMinuteRe.test(minute)) return false;
+          return true;
+        });
+        console.log(`Live filtered: ${filtered.length}`);
+
+        result = filtered.map((m: any, i: number) => ({
+          id: 9000 + i,
+          homeTeam: m.homeTeam.trim(),
+          awayTeam: m.awayTeam.trim(),
+          homeScore: m.homeScore ?? 0,
+          awayScore: m.awayScore ?? 0,
+          status: "Live",
+          minute: m.minute || null,
+          tournament: m.tournament || "Desconhecido",
+        }));
       } catch (err) {
         console.error("Live scraping error:", err);
         result = [];
@@ -420,29 +446,45 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       const { query } = body;
       if (!query) throw new Error("query required");
 
-      const results = await firecrawlSearch(
+      // Two-pass search: strict path filter first, broader fallback if empty
+      const queries = [
         `${query} footballer stats site:sofascore.com/player`,
-        8
-      );
-      result = results
-        .filter((r: any) => {
-          if (!r.url || !r.url.includes("sofascore.com/player")) return false;
-          const text = `${(r.title || "")} ${(r.description || "")}`.toLowerCase();
-          const excludePatterns = [
-            /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
-            /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
-            /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
-            /\bu\d{2}\b/i, /\bunder\s*\d+/i,
-          ];
-          return !excludePatterns.some((p) => p.test(text));
-        })
-        .slice(0, 5)
-        .map((r: any, i: number) => ({
-          id: i,
-          name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
-          url: r.url,
-          description: r.description || "",
-        }));
+        `${query} player site:sofascore.com`,
+      ];
+      const seen = new Set<string>();
+      const collected: any[] = [];
+      for (const q of queries) {
+        if (collected.length >= 5) break;
+        try {
+          const results = await firecrawlSearch(q, 8);
+          for (const r of results) {
+            if (!r.url) continue;
+            // Re-filter URLs server-side: must be a SofaScore player profile
+            if (!/sofascore\.com\/(?:[a-z-]+\/)?player\//i.test(r.url)) continue;
+            if (seen.has(r.url)) continue;
+            seen.add(r.url);
+            const text = `${(r.title || "")} ${(r.description || "")}`.toLowerCase();
+            const excludePatterns = [
+              /\bwomen\b/i, /\bfeminino\b/i, /\bfemale\b/i,
+              /\bfutsal\b/i, /\bjuvenil\b/i, /\bjunior\b/i,
+              /\byouth\b/i, /\bacademy\b/i, /\bsub-?\d+/i,
+              /\bu\d{2}\b/i, /\bunder\s*\d+/i,
+            ];
+            if (excludePatterns.some((p) => p.test(text))) continue;
+            collected.push(r);
+            if (collected.length >= 5) break;
+          }
+        } catch (err) {
+          console.error(`player_search "${q}" failed:`, err);
+        }
+      }
+      console.log(`player_search "${query}": ${collected.length} hits`);
+      result = collected.slice(0, 5).map((r: any, i: number) => ({
+        id: i,
+        name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
+        url: r.url,
+        description: r.description || "",
+      }));
     } else if (action === "player_stats") {
       const { playerUrl } = body;
       if (!playerUrl) throw new Error("playerUrl required");
@@ -527,12 +569,8 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       if (!teamName) throw new Error("teamName required");
 
       console.log(`Looking for team: ${teamName}`);
-
-      // Try multiple search strategies
       let teamPageUrl: string | null = null;
 
-      // Strategy 1: Direct SofaScore search
-      // Single optimized search
       const searches = [
         `${teamName} football team squad site:sofascore.com`,
       ];
@@ -544,8 +582,6 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
           console.log(`Search "${q}" returned ${results.length} results`);
           for (const r of results) {
             if (!r.url) continue;
-            console.log(`  Result: ${r.url} - ${r.title || ""}`);
-            // Match both URL formats: /football/team/ and /team/football/
             const isSofaTeam = r.url.includes("sofascore.com/football/team/") || r.url.includes("sofascore.com/team/football/");
             const isExcluded = /women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior|academia|talento/i.test(r.url + " " + (r.title || ""));
             if (isSofaTeam && !isExcluded) {
@@ -562,25 +598,47 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
         console.log("No team page found, returning empty");
         result = [];
       } else {
-        console.log(`Scraping squad from: ${teamPageUrl}`);
+        // Use the dedicated /squad sub-page (denser, more stable)
+        const squadUrl = teamPageUrl.replace(/\/+$/, "") + "/squad";
+        console.log(`Scraping squad markdown from: ${squadUrl}`);
         try {
-          const squadData = await scrapeExtract(
-            teamPageUrl,
-            `Extract the COMPLETE CURRENT first-team squad/roster of this men's professional football team. For EVERY player in the squad list: full name, playing position (Goalkeeper/Defender/Midfielder/Forward), shirt/jersey number, nationality, age. Include ALL players shown. Do NOT skip any player. This is the main senior men's team only.`,
+          const squadRules = `CRITICAL RULES for the squad list:
+- Extract ONLY players in the senior MEN'S first-team / professional squad shown on this page.
+- Use the REAL player full name as written (e.g. "Bruno Henrique", "Pedro").
+- "shirtNumber" MUST be the small jersey number printed next to the player (typically 1–99). If you cannot clearly read it from the page text, set it to null. NEVER invent it.
+- "age" MUST come from the page text (e.g. "27", "27 yrs", "27 anos"). If not clearly readable, set to null. NEVER invent.
+- "position" should be Goalkeeper / Defender / Midfielder / Forward (or pt-BR equivalent).
+- "url" MUST be the absolute SofaScore player profile URL extracted from the markdown link around the player's name (e.g. https://www.sofascore.com/player/...). If no link is shown for that player, set to "".
+- IGNORE women, youth, U-teams, futsal, staff, coaches.
+- NEVER use placeholders like "Player 1", "Unknown", "N/A".`;
+
+          const squadData = await scrapeMarkdownThenAI(
+            squadUrl,
+            `${squadRules}\nExtract every player in this team's senior men's squad table. For each: name, position, shirtNumber (integer or null), nationality, age (integer or null), url (SofaScore profile link or empty string).`,
             squadSchema
           );
 
-          const players = squadData?.players || [];
-          console.log(`Squad extracted: ${players.length} players`);
-          result = players.map((p: any, i: number) => ({
-            id: i,
-            name: p.name || "Unknown",
-            position: p.position || "",
-            shirtNumber: p.shirtNumber || null,
-            nationality: p.nationality || "",
-            age: p.age || null,
-            url: "",
-          }));
+          const rawPlayers = squadData?.players || [];
+          const placeholderRe = /^(player|jogador|atleta|unknown|n\/?a|tbd|---?|\?+)\s*[a-z0-9]{0,3}$/i;
+          const cleaned = rawPlayers
+            .map((p: any, i: number) => {
+              const name = (p.name || "").trim();
+              const ageNum = typeof p.age === "number" && p.age >= 15 && p.age <= 50 ? Math.round(p.age) : null;
+              const shirtNum = typeof p.shirtNumber === "number" && p.shirtNumber >= 1 && p.shirtNumber <= 99 ? Math.round(p.shirtNumber) : null;
+              const url = typeof p.url === "string" && /^https?:\/\/(www\.)?sofascore\.com\/.*\/player\//i.test(p.url) ? p.url : "";
+              return {
+                id: i,
+                name: name || "",
+                position: p.position || "",
+                shirtNumber: shirtNum,
+                nationality: p.nationality || "",
+                age: ageNum,
+                url,
+              };
+            })
+            .filter((p: any) => p.name && !placeholderRe.test(p.name));
+          console.log(`team_players: ${rawPlayers.length} raw -> ${cleaned.length} after validation`);
+          result = cleaned;
         } catch (err) {
           console.error("Squad scrape failed:", err);
           result = [];

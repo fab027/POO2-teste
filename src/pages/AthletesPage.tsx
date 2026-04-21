@@ -123,6 +123,12 @@ const AthletesPage = () => {
   }, [doSearch]);
 
   const handlePlayerFromTeam = (player: TeamPlayer) => {
+    // Prefer the exact SofaScore profile URL extracted from the squad — guarantees
+    // we open the same player. Fallback to a name search if the URL is missing.
+    if (player.url) {
+      setSelectedPlayerUrl(player.url);
+      return;
+    }
     doSearch(player.name);
     setMode("search");
     setSearch(player.name);
