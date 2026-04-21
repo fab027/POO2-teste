@@ -569,66 +569,70 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       if (!teamName) throw new Error("teamName required");
 
       console.log(`Looking for team: ${teamName}`);
-      let teamPageUrl: string | null = null;
+      // Source: Transfermarkt — its squad page is server-rendered (markdown is rich and stable),
+      // unlike SofaScore which renders the squad list via JS (markdown comes back empty).
+      let squadUrl: string | null = null;
 
-      const searches = [
-        `${teamName} football team squad site:sofascore.com`,
-      ];
-
-      for (const q of searches) {
-        if (teamPageUrl) break;
-        try {
-          const results = await firecrawlSearch(q, 5);
-          console.log(`Search "${q}" returned ${results.length} results`);
-          for (const r of results) {
-            if (!r.url) continue;
-            const isSofaTeam = r.url.includes("sofascore.com/football/team/") || r.url.includes("sofascore.com/team/football/");
-            const isExcluded = /women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior|academia|talento/i.test(r.url + " " + (r.title || ""));
-            if (isSofaTeam && !isExcluded) {
-              teamPageUrl = r.url;
-              break;
-            }
-          }
-        } catch (err) {
-          console.error(`Search failed for "${q}":`, err);
+      try {
+        const results = await firecrawlSearch(
+          `${teamName} squad site:transfermarkt.com kader verein`,
+          8
+        );
+        console.log(`TM search returned ${results.length} results`);
+        for (const r of results) {
+          if (!r.url) continue;
+          // We want the senior team squad page: /<slug>/kader/verein/<id>
+          // Reject U17/U20/U23/Frauen/feminino/B-teams.
+          const url: string = r.url;
+          const text = `${url} ${r.title || ""}`.toLowerCase();
+          if (!/transfermarkt\.[a-z.]+\/[^/]+\/kader\/verein\/\d+/.test(url)) continue;
+          if (/u\d{2}|sub-?\d+|youth|jugend|junior|frauen|women|feminin|reserve|\bii\b|-b\b|academy|akademie/.test(text)) continue;
+          squadUrl = url.split("?")[0];
+          break;
         }
+      } catch (err) {
+        console.error("Transfermarkt search failed:", err);
       }
 
-      if (!teamPageUrl) {
-        console.log("No team page found, returning empty");
+      if (!squadUrl) {
+        console.log("No Transfermarkt squad page found for", teamName);
         result = [];
       } else {
-        // Use the dedicated /squad sub-page (denser, more stable)
-        const squadUrl = teamPageUrl.replace(/\/+$/, "") + "/squad";
         console.log(`Scraping squad markdown from: ${squadUrl}`);
         try {
-          const squadRules = `CRITICAL RULES for the squad list:
-- Extract ONLY players in the senior MEN'S first-team / professional squad shown on this page.
-- Use the REAL player full name as written (e.g. "Bruno Henrique", "Pedro").
-- "shirtNumber" MUST be the small jersey number printed next to the player (typically 1–99). If you cannot clearly read it from the page text, set it to null. NEVER invent it.
-- "age" MUST come from the page text (e.g. "27", "27 yrs", "27 anos"). If not clearly readable, set to null. NEVER invent.
-- "position" should be Goalkeeper / Defender / Midfielder / Forward (or pt-BR equivalent).
-- "url" MUST be the absolute SofaScore player profile URL extracted from the markdown link around the player's name (e.g. https://www.sofascore.com/player/...). If no link is shown for that player, set to "".
-- IGNORE women, youth, U-teams, futsal, staff, coaches.
-- NEVER use placeholders like "Player 1", "Unknown", "N/A".`;
+          const squadRules = `CRITICAL RULES for the Transfermarkt squad table:
+- Extract ONLY players in the senior MEN'S first-team squad table on this page.
+- Each player row in the table contains, in order: jersey number, player photo + linked name, nationality flag(s), date of birth / age, contract end date, market value.
+- "name" MUST be the EXACT player name as written in the link text (e.g. "Agustín Rossi", "Léo Ortiz", "Pedro").
+- "shirtNumber" is the small integer in the leftmost column of the row (typically 1–99). If absent, use null.
+- "age" is the integer next to the date of birth (e.g. "30", "24"). Range 15–50. If not visible, use null.
+- "position" is the small label written under the player photo cell ("Goalkeeper", "Centre-Back", "Right-Back", "Defensive Midfield", "Attacking Midfield", "Centre-Forward", etc.). Map to one word: Goalkeeper / Defender / Midfielder / Forward.
+- "nationality" is the country shown by the flag(s). Use the FIRST country (primary nationality).
+- "url" MUST be the absolute Transfermarkt profile URL from the markdown link around the player's name (e.g. https://www.transfermarkt.com/agustin-rossi/profil/spieler/352324).
+- IGNORE managers, coaches, staff rows, and the "departures/arrivals" section if present.
+- NEVER invent placeholders like "Player 1".
+- Return EVERY player in the table (typically 20–35 players).`;
 
           const squadData = await scrapeMarkdownThenAI(
             squadUrl,
-            `${squadRules}\nExtract every player in this team's senior men's squad table. For each: name, position, shirtNumber (integer or null), nationality, age (integer or null), url (SofaScore profile link or empty string).`,
+            `${squadRules}\nExtract every player in this team's senior squad table. For each: name, position, shirtNumber (integer or null), nationality, age (integer or null), url (Transfermarkt profile link).`,
             squadSchema
           );
 
           const rawPlayers = squadData?.players || [];
+          console.log(`team_players raw: ${rawPlayers.length}`);
           const placeholderRe = /^(player|jogador|atleta|unknown|n\/?a|tbd|---?|\?+)\s*[a-z0-9]{0,3}$/i;
           const cleaned = rawPlayers
             .map((p: any, i: number) => {
               const name = (p.name || "").trim();
               const ageNum = typeof p.age === "number" && p.age >= 15 && p.age <= 50 ? Math.round(p.age) : null;
               const shirtNum = typeof p.shirtNumber === "number" && p.shirtNumber >= 1 && p.shirtNumber <= 99 ? Math.round(p.shirtNumber) : null;
-              const url = typeof p.url === "string" && /^https?:\/\/(www\.)?sofascore\.com\/.*\/player\//i.test(p.url) ? p.url : "";
+              // We accept Transfermarkt URLs here; the client falls back to a name search
+              // because player_stats only knows how to scrape SofaScore profiles.
+              const url = typeof p.url === "string" && /^https?:\/\//i.test(p.url) ? p.url : "";
               return {
                 id: i,
-                name: name || "",
+                name,
                 position: p.position || "",
                 shirtNumber: shirtNum,
                 nationality: p.nationality || "",
@@ -636,7 +640,7 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
                 url,
               };
             })
-            .filter((p: any) => p.name && !placeholderRe.test(p.name));
+            .filter((p: any) => p.name.length >= 2 && !placeholderRe.test(p.name));
           console.log(`team_players: ${rawPlayers.length} raw -> ${cleaned.length} after validation`);
           result = cleaned;
         } catch (err) {
