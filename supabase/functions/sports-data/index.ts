@@ -569,12 +569,8 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       if (!teamName) throw new Error("teamName required");
 
       console.log(`Looking for team: ${teamName}`);
-
-      // Try multiple search strategies
       let teamPageUrl: string | null = null;
 
-      // Strategy 1: Direct SofaScore search
-      // Single optimized search
       const searches = [
         `${teamName} football team squad site:sofascore.com`,
       ];
@@ -586,8 +582,6 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
           console.log(`Search "${q}" returned ${results.length} results`);
           for (const r of results) {
             if (!r.url) continue;
-            console.log(`  Result: ${r.url} - ${r.title || ""}`);
-            // Match both URL formats: /football/team/ and /team/football/
             const isSofaTeam = r.url.includes("sofascore.com/football/team/") || r.url.includes("sofascore.com/team/football/");
             const isExcluded = /women|feminino|futsal|u\d{2}|sub-?\d+|youth|junior|academia|talento/i.test(r.url + " " + (r.title || ""));
             if (isSofaTeam && !isExcluded) {
@@ -604,25 +598,47 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
         console.log("No team page found, returning empty");
         result = [];
       } else {
-        console.log(`Scraping squad from: ${teamPageUrl}`);
+        // Use the dedicated /squad sub-page (denser, more stable)
+        const squadUrl = teamPageUrl.replace(/\/+$/, "") + "/squad";
+        console.log(`Scraping squad markdown from: ${squadUrl}`);
         try {
-          const squadData = await scrapeExtract(
-            teamPageUrl,
-            `Extract the COMPLETE CURRENT first-team squad/roster of this men's professional football team. For EVERY player in the squad list: full name, playing position (Goalkeeper/Defender/Midfielder/Forward), shirt/jersey number, nationality, age. Include ALL players shown. Do NOT skip any player. This is the main senior men's team only.`,
+          const squadRules = `CRITICAL RULES for the squad list:
+- Extract ONLY players in the senior MEN'S first-team / professional squad shown on this page.
+- Use the REAL player full name as written (e.g. "Bruno Henrique", "Pedro").
+- "shirtNumber" MUST be the small jersey number printed next to the player (typically 1–99). If you cannot clearly read it from the page text, set it to null. NEVER invent it.
+- "age" MUST come from the page text (e.g. "27", "27 yrs", "27 anos"). If not clearly readable, set to null. NEVER invent.
+- "position" should be Goalkeeper / Defender / Midfielder / Forward (or pt-BR equivalent).
+- "url" MUST be the absolute SofaScore player profile URL extracted from the markdown link around the player's name (e.g. https://www.sofascore.com/player/...). If no link is shown for that player, set to "".
+- IGNORE women, youth, U-teams, futsal, staff, coaches.
+- NEVER use placeholders like "Player 1", "Unknown", "N/A".`;
+
+          const squadData = await scrapeMarkdownThenAI(
+            squadUrl,
+            `${squadRules}\nExtract every player in this team's senior men's squad table. For each: name, position, shirtNumber (integer or null), nationality, age (integer or null), url (SofaScore profile link or empty string).`,
             squadSchema
           );
 
-          const players = squadData?.players || [];
-          console.log(`Squad extracted: ${players.length} players`);
-          result = players.map((p: any, i: number) => ({
-            id: i,
-            name: p.name || "Unknown",
-            position: p.position || "",
-            shirtNumber: p.shirtNumber || null,
-            nationality: p.nationality || "",
-            age: p.age || null,
-            url: "",
-          }));
+          const rawPlayers = squadData?.players || [];
+          const placeholderRe = /^(player|jogador|atleta|unknown|n\/?a|tbd|---?|\?+)\s*[a-z0-9]{0,3}$/i;
+          const cleaned = rawPlayers
+            .map((p: any, i: number) => {
+              const name = (p.name || "").trim();
+              const ageNum = typeof p.age === "number" && p.age >= 15 && p.age <= 50 ? Math.round(p.age) : null;
+              const shirtNum = typeof p.shirtNumber === "number" && p.shirtNumber >= 1 && p.shirtNumber <= 99 ? Math.round(p.shirtNumber) : null;
+              const url = typeof p.url === "string" && /^https?:\/\/(www\.)?sofascore\.com\/.*\/player\//i.test(p.url) ? p.url : "";
+              return {
+                id: i,
+                name: name || "",
+                position: p.position || "",
+                shirtNumber: shirtNum,
+                nationality: p.nationality || "",
+                age: ageNum,
+                url,
+              };
+            })
+            .filter((p: any) => p.name && !placeholderRe.test(p.name));
+          console.log(`team_players: ${rawPlayers.length} raw -> ${cleaned.length} after validation`);
+          result = cleaned;
         } catch (err) {
           console.error("Squad scrape failed:", err);
           result = [];
