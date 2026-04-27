@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      cache_sports_data: {
+        Row: {
+          cache_key: string
+          created_at: string
+          expires_at: string
+          payload: Json
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          expires_at: string
+          payload: Json
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          payload?: Json
+        }
+        Relationships: []
+      }
+      chat_history: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["chat_role"]
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["chat_role"]
+          session_id?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["chat_role"]
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      favorites: {
+        Row: {
+          created_at: string
+          esporte: Database["public"]["Enums"]["sport_kind"]
+          id: string
+          nome: string
+          referencia_id: string
+          tipo: Database["public"]["Enums"]["favorite_type"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          esporte: Database["public"]["Enums"]["sport_kind"]
+          id?: string
+          nome: string
+          referencia_id: string
+          tipo: Database["public"]["Enums"]["favorite_type"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          esporte?: Database["public"]["Enums"]["sport_kind"]
+          id?: string
+          nome?: string
+          referencia_id?: string
+          tipo?: Database["public"]["Enums"]["favorite_type"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -41,14 +119,72 @@ export type Database = {
         }
         Relationships: []
       }
+      saved_dashboards: {
+        Row: {
+          created_at: string
+          dashboard_data: Json
+          id: string
+          titulo: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dashboard_data: Json
+          id?: string
+          titulo: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dashboard_data?: Json
+          id?: string
+          titulo?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
+      app_role: "analista" | "apostador" | "administrador"
+      chat_role: "user" | "assistant" | "system"
+      favorite_type: "atleta" | "equipe"
+      sport_kind: "football" | "basketball"
       sport_profile: "futebol" | "basquete"
     }
     CompositeTypes: {
@@ -177,6 +313,10 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["analista", "apostador", "administrador"],
+      chat_role: ["user", "assistant", "system"],
+      favorite_type: ["atleta", "equipe"],
+      sport_kind: ["football", "basketball"],
       sport_profile: ["futebol", "basquete"],
     },
   },

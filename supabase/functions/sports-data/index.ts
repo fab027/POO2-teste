@@ -346,20 +346,20 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       const isRealName = (s: string) => !!s && s.trim().length >= 2 && !placeholderRe.test(s.trim());
 
       // Detect "sequence of placeholders" as a hard signal the LLM hallucinated
-      const allLetters = rawMatches.every((m) =>
+      const allLetters = rawMatches.every((m: any) =>
         /^team\s*[a-z]$/i.test(m.homeTeam) || /^team\s*[a-z]$/i.test(m.awayTeam)
       );
       if (allLetters && rawMatches.length > 0) {
         console.warn(`${action}: detected hallucinated Team A/B/C — discarding all`);
         result = [];
       } else {
-        const filtered = rawMatches.filter((m) => {
+        const filtered = rawMatches.filter((m: any) => {
           if (!isRealName(m.homeTeam) || !isRealName(m.awayTeam)) return false;
           if (!m.startTimestamp) return false;
           if (isLast) return m.startTimestamp < nowSec;
           return m.startTimestamp >= nowSec - 3600;
         });
-        filtered.sort((a, b) =>
+        filtered.sort((a: any, b: any) =>
           isLast ? b.startTimestamp - a.startTimestamp : a.startTimestamp - b.startTimestamp
         );
         console.log(`${action}: ${rawMatches.length} raw -> ${filtered.length} after filter (source: ${sourceUrl})`);
