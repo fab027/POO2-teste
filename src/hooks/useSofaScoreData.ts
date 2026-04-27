@@ -107,7 +107,7 @@ export function useLiveMatches() {
       const key = "live_v6_all";
       const hit = cache[key];
       let res: SofaLiveMatch[];
-      if (hit && Date.now() - hit.ts < 20_000) {
+      if (hit && Date.now() - hit.ts < 15_000) {
         res = hit.data as SofaLiveMatch[];
       } else {
         res = await sofaScoreService.getLiveMatches();
@@ -122,7 +122,7 @@ export function useLiveMatches() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60_000);
+    const interval = setInterval(fetchData, 25_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 

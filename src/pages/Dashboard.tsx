@@ -12,7 +12,7 @@ const Dashboard = () => {
 
   const { data: standings, status: sStatus, refetch: refetchStandings } = useStandings(league.sofascoreUrl);
   const { lastMatches, nextMatches, status: mStatus, refetch: refetchMatches } = useMatches(league.sofascoreUrl);
-  const { data: liveMatches, status: lStatus } = useLiveMatches();
+  const { data: liveMatches, status: lStatus, refetch: refetchLive } = useLiveMatches();
 
   const isLoading = sStatus === "loading" || mStatus === "loading";
   const hasError = sStatus === "error" || mStatus === "error";
@@ -69,9 +69,37 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {liveMatches.length > 0 && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-          <p className="mb-2 text-xs font-semibold text-destructive uppercase tracking-wider">🔴 Ao Vivo agora</p>
+      <div className={`rounded-xl border p-4 ${liveMatches.length > 0 ? "border-destructive/30 bg-destructive/5" : "border-border bg-card"}`}>
+        <div className="mb-2 flex items-center justify-between">
+          <p className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${liveMatches.length > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+            {liveMatches.length > 0 ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+                </span>
+                Ao Vivo agora ({liveMatches.length})
+              </>
+            ) : (
+              <>Ao Vivo agora</>
+            )}
+          </p>
+          <button
+            onClick={() => refetchLive()}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Atualizar partidas ao vivo"
+          >
+            <RefreshCw className={`h-3 w-3 ${lStatus === "loading" ? "animate-spin" : ""}`} />
+            {lStatus === "loading" ? "Atualizando..." : "Atualizar"}
+          </button>
+        </div>
+        {lStatus === "loading" && liveMatches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Verificando partidas em andamento...</p>
+        ) : liveMatches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum jogo ocorrendo no momento. Atualizamos esta seção automaticamente a cada 25 segundos.
+          </p>
+        ) : (
           <div className="flex flex-wrap gap-3">
             {liveMatches.slice(0, 8).map((m) => (
               <div key={m.id} className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 text-sm border border-border">
@@ -83,8 +111,8 @@ const Dashboard = () => {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard title="Equipes na Tabela" value={standings.length || "—"} icon={Trophy} subtitle={league.name} trend={standings.length > 0 ? "up" : undefined} trendValue={standings.length > 0 ? "Dados reais" : undefined} />
