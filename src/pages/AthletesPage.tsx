@@ -1,12 +1,26 @@
 import { useMemo, useState, useCallback } from "react";
-import { Search, RefreshCw, User, ArrowLeft, Shield } from "lucide-react";
+import { Search, RefreshCw, User, ArrowLeft, Shield, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import { useStandings, usePlayerSearch, usePlayerStats, useTeamPlayers } from "@/hooks/useSofaScoreData";
 import { PlayerDetail, TeamPlayer } from "@/services/sofaScoreService";
 import FilterBar, { FilterDef } from "@/components/FilterBar";
+import { useFavorites } from "@/contexts/FavoritesContext";
 
-const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => void }) => {
+const PlayerCard = ({
+  player,
+  playerUrl,
+  onBack,
+}: {
+  player: PlayerDetail;
+  playerUrl: string;
+  onBack: () => void;
+}) => {
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const { sport } = useSport();
+  const esporte: "football" | "basketball" = sport === "basketball" ? "basketball" : "football";
+  const fav = isFavorite("atleta", playerUrl);
+
   const getRatingColor = (r: number) => {
     if (r >= 7.5) return "bg-green-600 text-white";
     if (r >= 7.0) return "bg-green-500 text-white";
@@ -26,7 +40,28 @@ const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => vo
             <User className="h-10 w-10" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display text-2xl font-bold text-foreground">{player.name}</h2>
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="font-display text-2xl font-bold text-foreground">{player.name}</h2>
+              <button
+                onClick={() =>
+                  toggleFavorite({
+                    tipo: "atleta",
+                    referenciaId: playerUrl,
+                    nome: player.name,
+                    esporte,
+                  })
+                }
+                className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  fav
+                    ? "border-sport bg-sport/10 text-sport"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+                aria-label={fav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+              >
+                <Star className={`h-4 w-4 ${fav ? "fill-current" : ""}`} />
+                {fav ? "Favorito" : "Favoritar"}
+              </button>
+            </div>
             <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
               {player.team && <span>🏟️ {player.team}</span>}
               {player.position && <span>📋 {player.position}</span>}
@@ -167,7 +202,13 @@ const AthletesPage = () => {
   if (selectedPlayerUrl && playerData) {
     return (
       <div className="space-y-6">
-        <PlayerCard player={playerData} onBack={() => { setSelectedPlayerUrl(null); }} />
+        <PlayerCard
+          player={playerData}
+          playerUrl={selectedPlayerUrl}
+          onBack={() => {
+            setSelectedPlayerUrl(null);
+          }}
+        />
       </div>
     );
   }
@@ -257,8 +298,15 @@ const AthletesPage = () => {
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground">{r.name}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{r.description}</p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {r.team ? <span>🏟️ {r.team}</span> : null}
+                      {r.age ? <span>🎂 {r.age} anos</span> : null}
+                      {!r.team && !r.age && (
+                        <span className="line-clamp-1">{r.description || "Clique para ver detalhes"}</span>
+                      )}
+                    </div>
                   </div>
+                  <div className="text-xs text-muted-foreground">›</div>
                 </button>
               ))}
             </div>

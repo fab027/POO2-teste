@@ -507,6 +507,21 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
         "al-hilal", "al hilal", "al-nassr", "al nassr", "santos",
         "brazil", "brasil", "argentina", "portugal", "france", "england",
       ];
+      // Iconic players that should always be ranked top when their name is searched
+      const iconicPlayers: Record<string, string[]> = {
+        "neymar": ["neymar jr", "neymar"],
+        "messi": ["lionel messi", "leo messi"],
+        "ronaldo": ["cristiano ronaldo"],
+        "cristiano": ["cristiano ronaldo"],
+        "mbappe": ["kylian mbappé", "kylian mbappe"],
+        "haaland": ["erling haaland"],
+        "vinicius": ["vinícius júnior", "vinicius jr"],
+        "rodrygo": ["rodrygo goes"],
+        "endrick": ["endrick"],
+        "pedri": ["pedri"],
+        "yamal": ["lamine yamal"],
+        "bellingham": ["jude bellingham"],
+      };
       const scoreItem = (r: any) => {
         const rawName = (r.title || "")
           .replace(/ - SofaScore.*$/i, "")
@@ -526,6 +541,14 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
         for (const t of qTokens) if (nameLower.includes(t)) score += 50;
         // Famous markers in description/title boost fame
         for (const m of famousMarkers) if (blob.includes(m)) score += 30;
+        // Iconic player override: huge boost
+        for (const key of Object.keys(iconicPlayers)) {
+          if (q.includes(key)) {
+            for (const variant of iconicPlayers[key]) {
+              if (nameLower.includes(variant)) score += 2000;
+            }
+          }
+        }
         // Shorter name URLs (canonical players) generally rank higher
         if (/\/player\/[^/]+\/\d+$/.test(r.url || "")) score += 20;
         // Penalize obviously obscure entries (very long names with extra qualifiers)
@@ -538,12 +561,14 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
 
-      // Try to extract image + description from each result page metadata
+      // Try to extract image + team + age from each result page metadata
       // (parallel, best-effort; fall back gracefully)
       const enriched = await Promise.all(
         ranked.map(async ({ r, rawName }, i) => {
           let imageUrl: string | null = null;
           let descPt = "";
+          let team = "";
+          let age: number | null = null;
           try {
             // Use Firecrawl to fetch page metadata (cheap, no extract schema)
             const fcKey = requireFirecrawlKey();
@@ -574,6 +599,19 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
                 .map((l: string) => l.trim())
                 .find((l: string) => l.length > 60 && !l.startsWith("#") && !l.startsWith("|"));
               if (para) descPt = para.slice(0, 220);
+              // Try to extract team + age from markdown patterns
+              // Common SofaScore patterns: "Team: Real Madrid", "Age: 28", or "28 years old"
+              const teamMatch =
+                md.match(/(?:Team|Equipe|Time|Club)\s*[:\-]\s*([^\n|]+?)(?:\n|$)/i) ||
+                md.match(/plays for\s+([A-Z][^\n.,]+?)(?:\.|,|\n)/i);
+              if (teamMatch) team = teamMatch[1].trim().slice(0, 60);
+              const ageMatch =
+                md.match(/(?:Age|Idade)\s*[:\-]\s*(\d{1,2})/i) ||
+                md.match(/\b(\d{2})\s*(?:years?\s*old|anos)\b/i);
+              if (ageMatch) {
+                const n = parseInt(ageMatch[1], 10);
+                if (n >= 15 && n <= 50) age = n;
+              }
             }
           } catch (e) {
             console.warn("meta fetch failed:", (e as Error).message);
@@ -621,6 +659,8 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
             url: r.url,
             description: descriptionPt,
             imageUrl,
+            team,
+            age,
           };
         })
       );
