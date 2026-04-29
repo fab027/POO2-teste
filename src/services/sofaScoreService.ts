@@ -72,6 +72,8 @@ export type PlayerSearchResult = {
   url: string;
   description: string;
   imageUrl?: string | null;
+  team?: string;
+  age?: number | null;
 };
 
 export type PlayerSeasonStats = {
