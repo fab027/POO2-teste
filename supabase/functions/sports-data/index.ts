@@ -469,9 +469,9 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
       const seen = new Set<string>();
       const collected: any[] = [];
       for (const q of queries) {
-        if (collected.length >= 5) break;
+        if (collected.length >= 10) break;
         try {
-          const results = await firecrawlSearch(q, 8);
+          const results = await firecrawlSearch(q, 12);
           for (const r of results) {
             if (!r.url) continue;
             // Re-filter URLs server-side: must be a SofaScore player profile
@@ -487,19 +487,145 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
             ];
             if (excludePatterns.some((p) => p.test(text))) continue;
             collected.push(r);
-            if (collected.length >= 5) break;
+            if (collected.length >= 10) break;
           }
         } catch (err) {
           console.error(`player_search "${q}" failed:`, err);
         }
       }
       console.log(`player_search "${query}": ${collected.length} hits`);
-      result = collected.slice(0, 5).map((r: any, i: number) => ({
-        id: i,
-        name: r.title?.replace(/ - SofaScore.*$/, "").replace(/ \|.*$/, "").replace(/ stats.*$/i, "").replace(/ statistics.*$/i, "").trim() || query,
-        url: r.url,
-        description: r.description || "",
-      }));
+
+      // ─── Famous-first ranking ─────────────────────────────────────────
+      const q = String(query).toLowerCase().trim();
+      const qTokens = q.split(/\s+/).filter(Boolean);
+      const famousMarkers = [
+        // National-team / top-club / award keywords boost fame
+        "national team", "seleção", "selecao", "world cup", "copa do mundo",
+        "ballon d'or", "ballon dor", "champions league",
+        "real madrid", "barcelona", "manchester", "liverpool", "chelsea",
+        "psg", "paris saint-germain", "bayern", "juventus", "milan", "inter",
+        "al-hilal", "al hilal", "al-nassr", "al nassr", "santos",
+        "brazil", "brasil", "argentina", "portugal", "france", "england",
+      ];
+      const scoreItem = (r: any) => {
+        const rawName = (r.title || "")
+          .replace(/ - SofaScore.*$/i, "")
+          .replace(/ \|.*$/, "")
+          .replace(/ stats.*$/i, "")
+          .replace(/ statistics.*$/i, "")
+          .trim();
+        const nameLower = rawName.toLowerCase();
+        const descLower = (r.description || "").toLowerCase();
+        const blob = `${nameLower} ${descLower}`;
+        let score = 0;
+        // Exact / prefix match on name strongly wins
+        if (nameLower === q) score += 1000;
+        else if (nameLower.startsWith(q)) score += 500;
+        else if (nameLower.includes(q)) score += 200;
+        // Each query token matched in name
+        for (const t of qTokens) if (nameLower.includes(t)) score += 50;
+        // Famous markers in description/title boost fame
+        for (const m of famousMarkers) if (blob.includes(m)) score += 30;
+        // Shorter name URLs (canonical players) generally rank higher
+        if (/\/player\/[^/]+\/\d+$/.test(r.url || "")) score += 20;
+        // Penalize obviously obscure entries (very long names with extra qualifiers)
+        if (rawName.split(/\s+/).length > 5) score -= 20;
+        return { rawName, score };
+      };
+
+      const ranked = collected
+        .map((r: any) => ({ r, ...scoreItem(r) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      // Try to extract image + description from each result page metadata
+      // (parallel, best-effort; fall back gracefully)
+      const enriched = await Promise.all(
+        ranked.map(async ({ r, rawName }, i) => {
+          let imageUrl: string | null = null;
+          let descPt = "";
+          try {
+            // Use Firecrawl to fetch page metadata (cheap, no extract schema)
+            const fcKey = requireFirecrawlKey();
+            const metaRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${fcKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                url: r.url,
+                formats: ["markdown"],
+                onlyMainContent: false,
+                waitFor: 1500,
+                timeout: 15000,
+              }),
+            });
+            if (metaRes.ok) {
+              const j = await metaRes.json();
+              const meta = j?.data?.metadata || j?.metadata || {};
+              imageUrl =
+                meta.ogImage || meta["og:image"] || meta.image || null;
+              // Strip generic SofaScore boilerplate
+              const md: string = j?.data?.markdown || j?.markdown || "";
+              // first non-empty paragraph
+              const para = md
+                .split("\n")
+                .map((l: string) => l.trim())
+                .find((l: string) => l.length > 60 && !l.startsWith("#") && !l.startsWith("|"));
+              if (para) descPt = para.slice(0, 220);
+            }
+          } catch (e) {
+            console.warn("meta fetch failed:", (e as Error).message);
+          }
+
+          // Fallback: translate the english snippet to PT-BR using AI
+          const baseDesc = descPt || r.description || "";
+          let descriptionPt = baseDesc;
+          if (baseDesc) {
+            try {
+              const aiKey = Deno.env.get("LOVABLE_API_KEY");
+              if (aiKey) {
+                const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${aiKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: "google/gemini-2.5-flash-lite",
+                    messages: [
+                      {
+                        role: "system",
+                        content:
+                          "Traduza para Português do Brasil. Responda APENAS com a tradução, sem explicações, sem aspas. Mantenha nomes próprios. Se já estiver em PT-BR, repita igual. Máximo 200 caracteres.",
+                      },
+                      { role: "user", content: baseDesc },
+                    ],
+                  }),
+                });
+                if (aiRes.ok) {
+                  const aj = await aiRes.json();
+                  const translated = aj?.choices?.[0]?.message?.content?.trim();
+                  if (translated) descriptionPt = translated.replace(/^["']|["']$/g, "");
+                }
+              }
+            } catch (e) {
+              console.warn("translate failed:", (e as Error).message);
+            }
+          }
+
+          return {
+            id: i,
+            name: rawName || query,
+            url: r.url,
+            description: descriptionPt,
+            imageUrl,
+          };
+        })
+      );
+
+      result = enriched;
     } else if (action === "player_stats") {
       const { playerUrl } = body;
       if (!playerUrl) throw new Error("playerUrl required");
