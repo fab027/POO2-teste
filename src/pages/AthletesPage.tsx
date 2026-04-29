@@ -202,7 +202,13 @@ const AthletesPage = () => {
   if (selectedPlayerUrl && playerData) {
     return (
       <div className="space-y-6">
-        <PlayerCard player={playerData} onBack={() => { setSelectedPlayerUrl(null); }} />
+        <PlayerCard
+          player={playerData}
+          playerUrl={selectedPlayerUrl}
+          onBack={() => {
+            setSelectedPlayerUrl(null);
+          }}
+        />
       </div>
     );
   }
