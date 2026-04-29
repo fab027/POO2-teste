@@ -164,7 +164,7 @@ export function usePlayerSearch() {
     }
     setStatus("loading");
     try {
-      const res = await cached(`player_search_${query}`, () =>
+      const res = await cached(`player_search_v2_${query}`, () =>
         sofaScoreService.searchPlayer(query)
       );
       setResults(res);
