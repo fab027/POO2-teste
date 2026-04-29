@@ -125,7 +125,7 @@ const Dashboard = () => {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="mb-1 font-display text-sm font-semibold text-foreground">
-              {isFootball ? "Gols Marcados (Top 8)" : "Pontos na Tabela (Top 8)"}
+              {isFootball ? "Gols Marcados (Top 8)" : "Pontos feitos (Top 8)"}
             </h3>
             <p className="mb-4 text-xs text-muted-foreground">Dados reais desta temporada</p>
             <ResponsiveContainer width="100%" height={240}>
@@ -171,10 +171,11 @@ const Dashboard = () => {
                   <th className="pb-2 text-left">Time</th>
                   <th className="pb-2 text-center">J</th>
                   <th className="pb-2 text-center">V</th>
-                  <th className="pb-2 text-center">E</th>
+                  {isFootball && <th className="pb-2 text-center">E</th>}
                   <th className="pb-2 text-center">D</th>
-                  <th className="pb-2 text-center">{isFootball ? "GP" : "Pts"}</th>
-                  <th className="pb-2 text-center font-bold">Pts</th>
+                  <th className="pb-2 text-center">{isFootball ? "GP" : "PF"}</th>
+                  <th className="pb-2 text-center">{isFootball ? "GC" : "PA"}</th>
+                  <th className="pb-2 text-center font-bold">{isFootball ? "Pts" : "V"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,12 +185,13 @@ const Dashboard = () => {
                     <td className="py-2 font-medium text-foreground">{t.name}</td>
                     <td className="py-2 text-center text-muted-foreground">{t.played}</td>
                     <td className="py-2 text-center text-muted-foreground">{t.wins}</td>
-                    <td className="py-2 text-center text-muted-foreground">{t.draws}</td>
+                    {isFootball && <td className="py-2 text-center text-muted-foreground">{t.draws}</td>}
                     <td className="py-2 text-center text-muted-foreground">{t.losses}</td>
                     <td className="py-2 text-center text-muted-foreground">{t.scored}</td>
+                    <td className="py-2 text-center text-muted-foreground">{t.conceded}</td>
                     <td className="py-2 text-center">
                       <span className="inline-flex items-center justify-center rounded-md bg-sport-light px-2 py-0.5 text-xs font-bold text-sport">
-                        {t.points}
+                        {isFootball ? t.points : t.wins}
                       </span>
                     </td>
                   </tr>

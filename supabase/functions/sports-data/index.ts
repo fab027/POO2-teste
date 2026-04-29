@@ -64,7 +64,7 @@ const scrapeExtract = async (
   }
 };
 
-// Scrape markdown via Firecrawl, then ask Lovable AI to structure it.
+// Scrape markdown via Firecrawl, then ask OpenAI to structure it.
 // Used when Firecrawl's native "extract" returns empty silently.
 const scrapeMarkdownThenAI = async (
   url: string,
@@ -72,8 +72,8 @@ const scrapeMarkdownThenAI = async (
   schema: Record<string, unknown>
 ): Promise<any> => {
   const fcKey = requireFirecrawlKey();
-  const aiKey = Deno.env.get("LOVABLE_API_KEY");
-  if (!aiKey) throw new Error("LOVABLE_API_KEY not configured");
+  const aiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!aiKey) throw new Error("OPENAI_API_KEY not configured");
 
   console.log(`Scraping markdown: ${url}`);
   const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
@@ -90,11 +90,11 @@ const scrapeMarkdownThenAI = async (
   // Truncate to keep prompt manageable
   const trimmed = markdown.slice(0, 18000);
 
-  const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${aiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: "You extract structured data from web page content. Output ONLY valid JSON matching the requested schema. Use ONLY information present in the provided content — never invent placeholders." },
         { role: "user", content: `${prompt}\n\nSchema (JSON):\n${JSON.stringify(schema)}\n\nPage content (markdown):\n${trimmed}` },
@@ -104,7 +104,7 @@ const scrapeMarkdownThenAI = async (
   });
   if (!aiRes.ok) {
     const errText = await aiRes.text();
-    console.error(`Lovable AI ${aiRes.status}:`, errText);
+    console.error(`OpenAI ${aiRes.status}:`, errText);
     throw new Error(`AI error: ${aiRes.status}`);
   }
   const aiData = await aiRes.json();
@@ -622,16 +622,16 @@ Extract ALL matches from BOTH sections (up to 30 total). For each: homeTeam, awa
           let descriptionPt = baseDesc;
           if (baseDesc) {
             try {
-              const aiKey = Deno.env.get("LOVABLE_API_KEY");
+              const aiKey = Deno.env.get("OPENAI_API_KEY");
               if (aiKey) {
-                const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
                   method: "POST",
                   headers: {
                     Authorization: `Bearer ${aiKey}`,
                     "Content-Type": "application/json",
                   },
                   body: JSON.stringify({
-                    model: "google/gemini-2.5-flash-lite",
+                    model: "gpt-4.1-mini",
                     messages: [
                       {
                         role: "system",
