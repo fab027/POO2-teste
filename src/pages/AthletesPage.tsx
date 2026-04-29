@@ -40,7 +40,28 @@ const PlayerCard = ({
             <User className="h-10 w-10" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display text-2xl font-bold text-foreground">{player.name}</h2>
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="font-display text-2xl font-bold text-foreground">{player.name}</h2>
+              <button
+                onClick={() =>
+                  toggleFavorite({
+                    tipo: "atleta",
+                    referenciaId: playerUrl,
+                    nome: player.name,
+                    esporte,
+                  })
+                }
+                className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  fav
+                    ? "border-sport bg-sport/10 text-sport"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+                aria-label={fav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+              >
+                <Star className={`h-4 w-4 ${fav ? "fill-current" : ""}`} />
+                {fav ? "Favorito" : "Favoritar"}
+              </button>
+            </div>
             <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
               {player.team && <span>🏟️ {player.team}</span>}
               {player.position && <span>📋 {player.position}</span>}
