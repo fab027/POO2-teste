@@ -8,7 +8,7 @@ const oddsToProb = (odds: number) => (odds > 0 ? (1 / odds) * 100 : 0);
 const PredictionsPage = () => {
   const { data: odds, status, refetch } = useOdds();
   const isLoading = status === "loading";
-  const [filters, setFilters] = useState<Record<string, string>>({ market: "all", favorite: "all" });
+  const [filters, setFilters] = useState<Record<string, string>>({ market: "all", favorite: "all", confidence: "all" });
 
   const filterDefs: FilterDef[] = [
     {
@@ -18,6 +18,15 @@ const PredictionsPage = () => {
         { value: "1x2", label: "1X2 (Resultado)" },
         { value: "draw", label: "Com chance de empate" },
         { value: "no-draw", label: "Sem empate (basquete)" },
+      ],
+    },
+    {
+      key: "confidence",
+      label: "Confiança",
+      options: [
+        { value: "high", label: "Alta (>=70%)" },
+        { value: "medium", label: "Média (55-69%)" },
+        { value: "low", label: "Baixa (<55%)" },
       ],
     },
     {
@@ -43,6 +52,10 @@ const PredictionsPage = () => {
       if (filters.favorite === "home" && ph !== max) return false;
       if (filters.favorite === "away" && pa !== max) return false;
       if (filters.favorite === "balanced" && max >= 55) return false;
+
+      if (filters.confidence === "high" && max < 70) return false;
+      if (filters.confidence === "medium" && (max < 55 || max >= 70)) return false;
+      if (filters.confidence === "low" && max >= 55) return false;
       return true;
     });
   }, [odds, filters]);
@@ -78,7 +91,7 @@ const PredictionsPage = () => {
         filters={filterDefs}
         values={filters}
         onChange={(k, v) => setFilters((p) => ({ ...p, [k]: v }))}
-        onClear={() => setFilters({ market: "all", favorite: "all" })}
+        onClear={() => setFilters({ market: "all", favorite: "all", confidence: "all" })}
       />
 
       {isLoading && odds.length === 0 && (

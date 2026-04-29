@@ -17,12 +17,7 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   login: (email: string, senha: string) => Promise<{ error: string | null }>;
-  register: (
-    nome: string,
-    email: string,
-    senha: string,
-    sportProfile: SportProfile
-  ) => Promise<{ error: string | null }>;
+  register: (nome: string, email: string, senha: string, sportProfile: SportProfile) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
@@ -36,30 +31,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = (userId: string) => {
-    // Fire-and-forget; never await inside auth listener
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setProfile(data as Profile);
-      });
+    supabase.from("profiles").select("*").eq("user_id", userId).maybeSingle().then(({ data }) => {
+      if (data) setProfile(data as Profile);
+    });
   };
 
   useEffect(() => {
-    // 1) Subscribe FIRST
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, newSession) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
-      if (newSession?.user) {
-        setTimeout(() => fetchProfile(newSession.user.id), 0);
-      } else {
-        setProfile(null);
-      }
+      if (newSession?.user) setTimeout(() => fetchProfile(newSession.user.id), 0);
+      else setProfile(null);
     });
 
-    // 2) THEN check existing session
     supabase.auth.getSession().then(({ data: { session: existing } }) => {
       setSession(existing);
       setUser(existing?.user ?? null);
@@ -75,19 +59,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: error?.message ?? null };
   };
 
-  const register = async (
-    nome: string,
-    email: string,
-    senha: string,
-    sportProfile: SportProfile
-  ) => {
+  const register = async (nome: string, email: string, senha: string, sportProfile: SportProfile) => {
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
-      options: {
-        emailRedirectTo: `${window.location.origin}/`,
-        data: { nome, sport_profile: sportProfile },
-      },
+      options: { emailRedirectTo: `${window.location.origin}/`, data: { nome, sport_profile: sportProfile } },
     });
     return { error: error?.message ?? null };
   };
@@ -97,22 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        profile,
-        loading,
-        login,
-        register,
-        logout,
-        isAuthenticated: !!session,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, session, profile, loading, login, register, logout, isAuthenticated: !!session }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {

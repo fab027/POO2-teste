@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
-import { lovable } from "@/integrations/lovable";
+import { supabase } from "@/integrations/supabase/client";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -15,17 +15,16 @@ const LoginPage = () => {
   const handleGoogle = async () => {
     setError("");
     setLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
     });
-    if (result.error) {
+    if (oauthError) {
       setError("Não foi possível entrar com Google. Tente novamente.");
       setLoading(false);
       return;
     }
-    if (result.redirected) return;
     setLoading(false);
-    navigate("/");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
