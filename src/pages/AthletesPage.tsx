@@ -240,12 +240,24 @@ const AthletesPage = () => {
                   onClick={() => setSelectedPlayerUrl(r.url)}
                   className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:shadow-md transition-shadow"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sport/10 text-sport">
-                    <User className="h-5 w-5" />
-                  </div>
+                  {r.imageUrl ? (
+                    <img
+                      src={r.imageUrl}
+                      alt={r.name}
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                      }}
+                      className="h-12 w-12 rounded-full object-cover bg-sport/10 flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-sport/10 text-sport">
+                      <User className="h-6 w-6" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground">{r.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{r.description}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{r.description}</p>
                   </div>
                 </button>
               ))}
