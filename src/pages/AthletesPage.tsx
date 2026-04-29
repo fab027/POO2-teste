@@ -257,8 +257,15 @@ const AthletesPage = () => {
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground">{r.name}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{r.description}</p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {r.team ? <span>🏟️ {r.team}</span> : null}
+                      {r.age ? <span>🎂 {r.age} anos</span> : null}
+                      {!r.team && !r.age && (
+                        <span className="line-clamp-1">{r.description || "Clique para ver detalhes"}</span>
+                      )}
+                    </div>
                   </div>
+                  <div className="text-xs text-muted-foreground">›</div>
                 </button>
               ))}
             </div>
