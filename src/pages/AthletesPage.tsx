@@ -1,12 +1,26 @@
 import { useMemo, useState, useCallback } from "react";
-import { Search, RefreshCw, User, ArrowLeft, Shield } from "lucide-react";
+import { Search, RefreshCw, User, ArrowLeft, Shield, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSport } from "@/contexts/SportContext";
 import { useStandings, usePlayerSearch, usePlayerStats, useTeamPlayers } from "@/hooks/useSofaScoreData";
 import { PlayerDetail, TeamPlayer } from "@/services/sofaScoreService";
 import FilterBar, { FilterDef } from "@/components/FilterBar";
+import { useFavorites } from "@/contexts/FavoritesContext";
 
-const PlayerCard = ({ player, onBack }: { player: PlayerDetail; onBack: () => void }) => {
+const PlayerCard = ({
+  player,
+  playerUrl,
+  onBack,
+}: {
+  player: PlayerDetail;
+  playerUrl: string;
+  onBack: () => void;
+}) => {
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const { sport } = useSport();
+  const esporte: "football" | "basketball" = sport === "basketball" ? "basketball" : "football";
+  const fav = isFavorite("atleta", playerUrl);
+
   const getRatingColor = (r: number) => {
     if (r >= 7.5) return "bg-green-600 text-white";
     if (r >= 7.0) return "bg-green-500 text-white";
